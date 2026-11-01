@@ -1,0 +1,11 @@
+build/
+build-tools/
+*.class
+*.dex
+*.apk
+*.jks
+*.keystore
+pass.txt
+design/miuix-v1/fonts/
+wake-diagnostic/samples.txt
+.DS_Store
