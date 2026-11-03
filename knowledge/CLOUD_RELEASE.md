@@ -8,10 +8,18 @@
 
 上游仓库应继续保持私有：`bianwuya/ace7pro-fan` 的 GitHub Release 和附件继承仓库访问权限，不会因创建 Draft 而公开给仓库外人员下载。本文不授权改变仓库可见性。
 
+## 已实际跑通的原签名 Draft（2026-11-03）
+
+- 用户明确同意后，Existing 原签名 keystore 与口令只经 stdin 写入私有仓库 `release-signing` 环境的加密 Secrets；没有粘贴到聊天、日志、Issue 或 Git，也没有写入临时普通文件。环境策略限制为 `v*` tag；该私有仓库当前套餐没有人工审批保护，因此自动 Draft 仍需人工审核后再 Publish。
+- 受控 tag `v0.3.0-compat` → [run 41638235843](https://github.com/bianwuya/ace7pro-fan/actions/runs/41638235843) 两个 job 全部成功：unsigned构建、同签名、固定证书+v3审计、Draft创建、清理步骤均完成。源提交 `1ba05d45cb3b97e38db63a8fd6e103f07c9564e9`。
+- Draft（仍为 draft，不是正式发布）包含固定签名的 APK、`BUILD_INFO.json`、`RELEASE_NOTES.md`、`SHA256SUMS.txt`。下载后复核了哈希、构建源提交、证书 `e3977f9ff13304e9a48106cd8b2c3e68abe8ea50cbba5ad90b118500265898d9`、v3签名和APK审计；APK SHA256 为 `9995352c5f6ac87a68b5d95ff63c2900d1b38ee37cfced31269ee0a015461c0c`。它与更早的本地包不是逐字节同一构建，但同签名身份、同源码行为。
+- 第一次 Draft 暴露了两个发布资产问题：checksum 列出未上传的 `.idsig`，以及 `-compat` 被误标为 prerelease；已修正并由**全新**受控构建替换了未审核 Draft。该次实测说明：自动构建成功不等于 Draft 资产正确，仍需下载审计。
+- 这仍然是离线打包验证，不包含云端私有 OEM 样本测试，也不代替设备手测。
+
 ## 触发器与产物边界
 
 - `main` 的 push、Pull Request 和手动触发只运行无密钥构建：执行源码检查/测试，构建未签名 APK，检查包名、版本、权限、对齐及 APK 完整性，再上传明确列出的 Actions artifact。PR 作业不得读取任何签名 Secret、不得进入 `release-signing` 环境、不得创建或改写 Release；签名作业的权限与触发条件须和 PR 作业隔离。
-- 推送形如 `v<APP_VERSION>` 的版本 tag 才进入签名及 Draft 流程。必须先完成下节的所有 tag 检查；检查失败、签名失败或密钥缺失时，立即失败且不创建 Draft。该流程只创建 GitHub **Draft Release**，不会自动正式发布，也不会自动创建 tag。
+- 推送形如 `v<APP_VERSION>` 的版本 tag（或在该 tag ref 上手动重跑工作流）才进入签名及 Draft 流程。必须先完成下节的所有 tag 检查；检查失败、签名失败或密钥缺失时，立即失败且不创建 Draft。该流程只创建 GitHub **Draft Release**，不会自动正式发布，也不会自动创建 tag。
 - Actions 上传必须使用显式文件白名单，只包含预期 APK 与必要的校验清单；禁止把整个 `build/`、工作区、临时目录或密钥目录打包上传。普通构建产物明确标为 unsigned。未签名 APK 不能直接覆盖设备上已安装的同包名签名版；不要把它当成正式更新包安装。
 
 ## 版本、说明与签名前置校验
@@ -29,9 +37,9 @@
 
 ## 签名 Secret 与临时文件
 
-签名 job 通过 GitHub Actions 的 `release-signing` environment 引用 `ACEFAN_KEYSTORE_B64` 与 `ACEFAN_STORE_PASSWORD`。**这两个 Secret 目前为空，且尚未获准上传私钥；需用户另行明确同意在 GitHub 加密托管后才能配置。** 在获得单独同意之前，tag 签名流程必须失败关闭，不得切换其他密钥、生成替代证书、用 debug key 签名或绕过指纹校验。
+签名 job 通过 GitHub Actions 的 `release-signing` environment 引用 `ACEFAN_KEYSTORE_B64` 与 `ACEFAN_STORE_PASSWORD`。**这两个 Secret 已按用户明确授权存入私有仓库的 `release-signing` 加密环境，仅允许 `v*` tag 使用；没有上传到普通仓库或公开位置。** 缺少 Secret 时，tag 签名流程必须失败关闭，不得切换其他密钥、生成替代证书、用 debug key 签名或绕过指纹校验。
 
-若用户之后单独同意，先创建 `release-signing` 环境，按账号套餐支持情况限制为版本tag并设置审批（个人私有仓库并非都支持人工审批保护），再在已认证的本地终端通过 stdin 设置环境 Secret；以下仅为命令形式示意，本次没有读取任何密钥/口令文件，也没有执行上传：
+当前已获用户单独同意：已创建 `release-signing` 环境，按账号套餐支持情况限制为版本tag并设置审批（个人私有仓库并非都支持人工审批保护），再在已认证的本地终端通过 stdin 设置环境 Secret；首次配置使用 stdin 上传（不再重复执行；绝不张贴材料）：
 
 ```sh
 gh secret set ACEFAN_KEYSTORE_B64 --repo bianwuya/ace7pro-fan --env release-signing < /secure/local/keystore-base64.txt

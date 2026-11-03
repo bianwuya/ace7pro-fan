@@ -34,6 +34,13 @@
 - 签名job在普通main push上正确SKIPPED；原密钥与口令尚未上传，两个Secrets为空。缺Secrets时阻止签名/草稿，不能用debug/换签代替。签名到Draft端到端仍待用户单独授权云端加密托管并验证，不虚称已完成正式包发布。
 - 流程/操作入口 [CLOUD_RELEASE.md](CLOUD_RELEASE.md)，当前版本正文 [NOTES.md](../releases/0.3.0-compat/NOTES.md)。没有改runtime源码/资源/Manifest、安装、重启或改变仓库私有性。此云端只做离线验证，私有OEM样本在云端明确SKIPPED，不能补作真机验收。
 
+## 云端同签名Draft（2026-11-03）
+
+- 用户明确同意后，现有签名keystore与口令已通过stdin写入私有`bianwuya/ace7pro-fan`的`release-signing`环境Secrets，环境部署策略为自定义tag`v*`；密钥/口令未进Git、artifact、文档或聊天，临时文件在运行后清理。
+- 受控tag`v0.3.0-compat`的[run 41638235843](https://github.com/bianwuya/ace7pro-fan/actions/runs/41638235843)在源提交`1ba05d4`全部成功，生成**Draft**（非正式发布）。下载的APK固定证书`e397…98d9`、v3、包版本/权限/对齐审计通过，SHA256 `9995352c…c0c`；四件资产及校验清单一致，新增/修复/验证限制说明存在。
+- 首轮Draft的`.idsig`清单和不正确的prerelease标记已修复；未审核Draft已删除并由新构建替代。自动成功不替代资产审计。
+- Secret与环境配置已就位；若日后要撤销，需用户确认。仓库仍私有。云端未获取私有OEM真实样本，也不是设备/风扇效果验收。正式Publish仍由用户审核。
+
 ## 设备状态的历史证据
 
 截至 **2026-11-03 19:21**，0.3.0-compat 已签名覆盖安装，但原厂服务 PID `6166` 未重启，仍加载旧 Hook `0.2.1-eco`。本次管理没有重新查询设备；此记录不说明当前 PID、加载版本或风扇实际状态。必须在用户正常重载后验证运行 Hook 和既有功能。

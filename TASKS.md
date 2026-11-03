@@ -14,7 +14,7 @@
 | PM-004 | P2 | 已完成 | 用户授权后已在其 `bianwuya` 账号建立私有 [ace7pro-fan](https://github.com/bianwuya/ace7pro-fan)，完整历史已推送；远端重新克隆和Git对象/提交/完整性验证通过，首轮CI通过。只备份已纳管源码，不包含密钥/样本/构建环境；恢复与后续同步见 [远端备份](knowledge/REMOTE_BACKUP.md)。无自动定时push或公开发布。 |
 | PM-005 | P2 | 待办 | 对外授权许可。未替用户选择 License；如需公开源码，先确认许可与第三方材料分发边界。 |
 | PM-006 | P1 | 已完成 | GitHub自动构建及版本说明门禁。main/PR/manual无密钥检查包，tag原签名草稿；说明必须有新增/修复/验证与限制。42项管理及发布自测通过；真实[云端构建41635143748](https://github.com/bianwuya/ace7pro-fan/actions/runs/41635143748)成功，产物已下载并审计SHA/源码/说明/包结构；签名job正确SKIPPED，不计作签名链通过。 |
-| PM-007 | P1 | 阻塞 | 原签名云端托管与签名Draft端到端。需要用户单独同意将原key/口令设为环境Secrets；目前没有上传，不能把未签名CI通过当成此项通过。获准后先核验环境配置与固定证书，再跑受控tag验证，草稿由用户审核发布。 |
+| PM-007 | P1 | 已完成 | 原签名云端托管与签名Draft端到端。已获用户单独同意并上传到私有repo的`release-signing`加密环境，策略仅允许`v*` tag。受控tag[41638235843](https://github.com/bianwuya/ace7pro-fan/actions/runs/41638235843)同签名Draft成功，下载后固定证书/v3/哈希/源提交/说明复核通过；Draft由用户审核，未Publish。 |
 
 ## 产品与兼容验收
 
