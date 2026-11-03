@@ -156,7 +156,8 @@ public final class DataProvider extends ContentProvider {
             Object value = new JSONTokener(s).nextValue();
             if (!(value instanceof JSONObject)) throw new IllegalArgumentException("JSON object required");
             JSONObject o = (JSONObject)value;
-            if (o.length() > 64) throw new IllegalArgumentException("Too many fields");
+            // Compatibility reports add diagnostic fields; the byte budget still bounds the payload.
+            if (o.length() > 96) throw new IllegalArgumentException("Too many fields");
             return o;
         } catch (JSONException e) { throw new IllegalArgumentException("Invalid JSON", e); }
     }

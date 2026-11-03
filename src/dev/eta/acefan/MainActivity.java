@@ -1,6 +1,9 @@
 package dev.eta.acefan;
 
 import android.app.Activity;
+import android.content.ClipData;
+import android.content.ClipboardManager;
+import android.content.Context;
 import android.content.Intent;
 import android.database.Cursor;
 import android.graphics.Color;
@@ -42,6 +45,7 @@ public class MainActivity extends Activity {
     static final String AUTHORITY = "dev.eta.acefan.data";
     static final Uri BASE = Uri.parse("content://" + AUTHORITY);
     static final int CREATE_CSV = 71;
+    static final int CREATE_REPORT = 72;
 
     final ExecutorService io = Executors.newSingleThreadExecutor();
     final Handler handler = new Handler(Looper.getMainLooper());
@@ -487,6 +491,13 @@ public class MainActivity extends Activity {
 
         data.addView(ui.divider(), ui.params(ViewGroup.LayoutParams.MATCH_PARENT, 1, 18, 0, 18, 0));
 
+        LinearLayout report = settingRow("设备兼容报告", "导出这台机器的适配证据，供他人适配", false,
+                ui.text("导出", 13, ui.muted, false));
+        report.setOnClickListener(v -> showDeviceReport());
+        data.addView(report);
+
+        data.addView(ui.divider(), ui.params(ViewGroup.LayoutParams.MATCH_PARENT, 1, 18, 0, 18, 0));
+
         LinearLayout clear = settingRow("清空历史", "删除全部历史遥测，无法撤销", true, null);
         clear.setOnClickListener(v -> confirmClear());
         data.addView(clear);
@@ -534,12 +545,13 @@ public class MainActivity extends Activity {
     // ---------------------------------------------------------------- actions
 
     void moreMenu() {
-        String[] items = {"刷新数据", "打开 LSPosed", "模块诊断", "版本兼容性"};
+        String[] items = {"刷新数据", "打开 LSPosed", "模块诊断", "版本兼容性", "导出设备兼容报告"};
         Sheet.choices(this, ui, "更多", items, -1, index -> {
             if (index == 0) load(true);
             else if (index == 1) openLsposed();
             else if (index == 2) showDiagnostics();
-            else showCompatibility();
+            else if (index == 3) showCompatibility();
+            else showDeviceReport();
         });
     }
 
@@ -581,6 +593,8 @@ public class MainActivity extends Activity {
         if (!BuildInfo.HOOK_VERSION.equals(j.optString("hookVersion", "")))
             b.append("新兼容层尚未加载，请正常重启后重新诊断。\n");
         b.append("固件适配：").append(CompatibilityCatalog.statusLabel(j.optString("compatibilityStatus", ""))).append('\n');
+        String stage = j.optString("compatibilityStage", "");
+        if (!stage.isEmpty()) b.append("失败阶段：").append(stage).append('\n');
         if (j.has("compatibilityDetail")) b.append(j.optString("compatibilityDetail")).append('\n');
         if (j.has("targetVersion")) b.append("原厂服务：").append(j.optString("targetVersion")).append('\n');
         if (j.has("firmwareProfile")) b.append("匹配档案：").append(j.optString("firmwareProfile")).append('\n');
@@ -661,6 +675,124 @@ public class MainActivity extends Activity {
         Sheet.info(this, ui, "模块诊断", b.toString());
     }
 
+    // ---------------------------------------------------------------- device report
+
+    /** Fills the pure formatter from the latest runtime record plus this app's own context. */
+    DiagnosticReport.Input reportInput() {
+        DiagnosticReport.Input in = new DiagnosticReport.Input();
+        JSONObject j = runtimeRecord;
+        in.generatedAt = new SimpleDateFormat("yyyy-MM-dd HH:mm:ss", Locale.getDefault()).format(new Date());
+        in.appVersion = BuildInfo.APP_VERSION;
+        in.hookVersion = j == null ? "" : j.optString("hookVersion", "");
+        // Same rule the UI uses for "待重载": an injected hook with the wrong version is stale.
+        boolean injected = j != null && ("已注入".equals(j.optString("hook", ""))
+                || "Root只读预览".equals(j.optString("hook", ""))) && runtimeFresh(j);
+        in.hookStale = injected && !BuildInfo.HOOK_VERSION.equals(in.hookVersion);
+        in.model = Build.MODEL;
+        in.device = Build.DEVICE;
+        in.brand = Build.BRAND + " / " + Build.MANUFACTURER;
+        in.release = Build.VERSION.RELEASE;
+        in.sdk = String.valueOf(Build.VERSION.SDK_INT);
+        in.display = Build.DISPLAY;
+        in.fingerprint = Build.FINGERPRINT;
+        in.incremental = Build.VERSION.INCREMENTAL;
+        in.hardwareGate = j == null ? "" : j.optString("hardwareGate", "");
+        in.hookState = j == null ? "" : j.optString("hook", "");
+        in.frameworkApi = j == null || j.isNull("frameworkApi") ? "" : j.optString("frameworkApi", "");
+        in.frameworkVersion = j == null || j.isNull("frameworkVersion") ? "" : j.optString("frameworkVersion", "");
+        in.manager = FrameworkCompat.managers(this);
+        in.scope = j == null ? "com.oplus.exsystemservice" : j.optString("targetScope", "com.oplus.exsystemservice");
+        in.status = j == null ? "" : j.optString("compatibilityStatus", "");
+        in.stage = j == null ? "" : j.optString("compatibilityStage", "");
+        in.detail = j == null ? "" : j.optString("compatibilityDetail", "");
+        in.profile = j == null ? "" : j.optString("firmwareProfile", "");
+        in.trace = j == null ? "" : j.optString("compatibilityTrace", "");
+        in.knownApk = j == null ? "" : j.optString("knownApk", "");
+        // Fall back to what this app can read itself when the hook never reported (not injected).
+        in.targetPackage = j == null || j.optString("targetPackage", "").isEmpty()
+                ? "com.oplus.exsystemservice" : j.optString("targetPackage");
+        in.targetVersion = targetVersionOf(in.targetPackage);
+        if (j != null) {
+            in.targetPath = j.optString("targetPath", "");
+            in.targetSha256 = j.optString("targetSha256", "");
+            in.enabled = String.valueOf(j.optBoolean("enabled", false));
+            in.active = String.valueOf(j.optBoolean("active", false));
+            in.phase = j.optString("phase", "");
+            in.reason = j.optString("reason", "");
+            in.candidate = level(j, "oem");
+            in.request = level(j, "request");
+            in.driver = level(j, "driver");
+            in.effective = level(j, "effective");
+            in.battery = temp(j, "battery");
+            in.board = temp(j, "board");
+            in.fan = temp(j, "fan");
+            in.mos = temp(j, "mos");
+            in.plugged = pluggedText(j);
+            in.keyguard = bool(j, "keyguardLocked");
+            in.interactive = bool(j, "interactive");
+        }
+        if (in.targetPath == null || in.targetPath.isEmpty()) in.targetPath = "未取得（需注入后回报）";
+        if (in.targetSha256 == null || in.targetSha256.isEmpty()) in.targetSha256 = "未取得（需注入后回报）";
+        return in;
+    }
+
+    String targetVersionOf(String pkg) {
+        try {
+            String v = getPackageManager().getPackageInfo(pkg, 0).versionName;
+            return v == null ? "" : v;
+        } catch (Exception e) {
+            return "未安装或不可见";
+        }
+    }
+
+    static String pluggedText(JSONObject j) {
+        Object v = j.opt("plugged");
+        if (!(v instanceof Number)) return "—";
+        int p = ((Number) v).intValue();
+        if (p == 0) return "未接电";
+        StringBuilder b = new StringBuilder();
+        if ((p & 2) != 0) b.append("USB ");
+        if ((p & 1) != 0) b.append("AC ");
+        if ((p & 4) != 0) b.append("无线 ");
+        return b.length() == 0 ? String.valueOf(p) : b.toString().trim();
+    }
+
+    String buildReport() {
+        return DiagnosticReport.build(reportInput());
+    }
+
+    void showDeviceReport() {
+        String report = buildReport();
+        String[] items = {"复制到剪贴板", "分享文本", "保存为 .txt 文件"};
+        Sheet.choices(this, ui, "设备兼容报告", items, -1, index -> {
+            if (index == 0) {
+                ClipboardManager cm = (ClipboardManager) getSystemService(Context.CLIPBOARD_SERVICE);
+                if (cm == null) {
+                    Toast.makeText(this, "剪贴板不可用", Toast.LENGTH_SHORT).show();
+                    return;
+                }
+                cm.setPrimaryClip(ClipData.newPlainText("ACE7pro 设备兼容报告", report));
+                Toast.makeText(this, "已复制 " + report.length() + " 字，可直接粘贴给对方", Toast.LENGTH_LONG).show();
+            } else if (index == 1) {
+                Intent i = new Intent(Intent.ACTION_SEND);
+                i.setType("text/plain");
+                i.putExtra(Intent.EXTRA_SUBJECT, "ACE7pro 风扇助手 · 设备兼容报告");
+                i.putExtra(Intent.EXTRA_TEXT, report);
+                try {
+                    startActivity(Intent.createChooser(i, "分享设备兼容报告"));
+                } catch (Exception e) {
+                    Toast.makeText(this, "没有可用的分享目标：" + e.getMessage(), Toast.LENGTH_LONG).show();
+                }
+            } else {
+                Intent i = new Intent(Intent.ACTION_CREATE_DOCUMENT);
+                i.addCategory(Intent.CATEGORY_OPENABLE);
+                i.setType("text/plain");
+                i.putExtra(Intent.EXTRA_TITLE, "ace7pro-fan-report.txt");
+                startActivityForResult(i, CREATE_REPORT);
+            }
+        });
+    }
+
     void confirmClear() {
         Sheet.confirm(this, ui, "清空历史？",
                 "将删除 Provider 中的全部历史遥测，无法撤销。当前增强开关和主题设置不受影响。",
@@ -690,7 +822,12 @@ public class MainActivity extends Activity {
     @Override
     protected void onActivityResult(int req, int result, Intent data) {
         super.onActivityResult(req, result, data);
-        if (req != CREATE_CSV || result != RESULT_OK || data == null) return;
+        if (result != RESULT_OK || data == null || data.getData() == null) return;
+        if (req == CREATE_REPORT) {
+            saveReport(data.getData());
+            return;
+        }
+        if (req != CREATE_CSV) return;
         Uri uri = data.getData();
         ArrayList<ChartView.Sample> copy = new ArrayList<>(samples);
         io.execute(() -> {
@@ -704,6 +841,22 @@ public class MainActivity extends Activity {
             final String er = error;
             handler.post(() -> Toast.makeText(this,
                     er == null ? "CSV 已导出（已移除转速列）" : "导出失败：" + er, Toast.LENGTH_LONG).show());
+        });
+    }
+
+    void saveReport(Uri uri) {
+        final String report = buildReport();
+        io.execute(() -> {
+            String error = null;
+            try (OutputStream out = getContentResolver().openOutputStream(uri, "w")) {
+                if (out == null) throw new Exception("无法打开目标文件");
+                out.write(report.getBytes(StandardCharsets.UTF_8));
+            } catch (Exception e) {
+                error = e.toString();
+            }
+            final String er = error;
+            handler.post(() -> Toast.makeText(this,
+                    er == null ? "报告已保存" : "保存失败：" + er, Toast.LENGTH_LONG).show());
         });
     }
 

@@ -36,6 +36,7 @@ public final class FanHook implements IXposedHookLoadPackage {
     private static volatile FanServiceCompat.Bootstrap bootstrap;
     private static final AtomicBoolean resolving=new AtomicBoolean();
     private static volatile String compatibilityStatus="pending",compatibilityDetail="等待原厂风扇初始化",targetVersion="未知";
+    private static volatile String compatibilityStage="",targetSha256="未知",targetPath="暂无",hardwareGate="未知";
     private static volatile boolean knownFirmware;
     private static final java.util.List<XC_MethodHook.Unhook> installed=new java.util.ArrayList<XC_MethodHook.Unhook>();
     private static final Uri API=Uri.parse("content://dev.eta.acefan.data");
@@ -81,11 +82,16 @@ public final class FanHook implements IXposedHookLoadPackage {
                 try{startWorker((Context)event.args[0]);}catch(Throwable t){unsupported(t);}
             }
         });
+        hardwareGate=CompatibilityCatalog.hardwareSupported(Build.MODEL,Build.DEVICE)
+                ?"通过："+Build.MODEL+" / "+Build.DEVICE
+                :"不通过："+Build.MODEL+" / "+Build.DEVICE+"（本模块仅覆盖 ACE7pro PMS110 / OP64F1L1）";
         if(!CompatibilityCatalog.hardwareSupported(Build.MODEL,Build.DEVICE)){
-            compatibilityStatus="unsupported";compatibilityDetail="非 ACE7pro PMS110 / OP64F1L1 硬件；仅观测";return;
+            compatibilityStatus="unsupported";compatibilityStage="硬件门槛";
+            compatibilityDetail="非 ACE7pro PMS110 / OP64F1L1 硬件；仅观测";return;
         }
         if(!CompatibilityCatalog.bridgeSupported(XposedBridge.getXposedVersion())){
-            compatibilityStatus="unsupported";compatibilityDetail="需要传统 Xposed API ≥82";return;
+            compatibilityStatus="unsupported";compatibilityStage="框架门槛";
+            compatibilityDetail="需要传统 Xposed API ≥82，当前 API "+XposedBridge.getXposedVersion();return;
         }
         try {
             bootstrap=FanServiceCompat.bootstrap(loader,Context.class,Handler.class);
@@ -196,6 +202,8 @@ public final class FanHook implements IXposedHookLoadPackage {
     private static void unsupported(Throwable t){
         compatible=false;active=false;cancelContinuation();
         compatibilityStatus="unsupported";
+        String stage=FanServiceCompat.stageOf(t);
+        if(!stage.isEmpty())compatibilityStage=stage;
         compatibilityDetail=t.getClass().getSimpleName()+": "+String.valueOf(t.getMessage());
         if(compatibilityDetail.length()>500)compatibilityDetail=compatibilityDetail.substring(0,500);
         decisionReason="系统风扇接口未适配，仅观测："+compatibilityDetail;
@@ -257,11 +265,13 @@ public final class FanHook implements IXposedHookLoadPackage {
 
     private static boolean verifyApk(){
         try{
+            targetPath=String.valueOf(context.getPackageCodePath());
             MessageDigest md=MessageDigest.getInstance("SHA-256");byte[] buffer=new byte[32768];
             try(FileInputStream in=new FileInputStream(context.getPackageCodePath())){int n;while((n=in.read(buffer))>0)md.update(buffer,0,n);}
             StringBuilder x=new StringBuilder();for(byte b:md.digest())x.append(String.format(java.util.Locale.US,"%02x",b&255));
-            return APK_HASH.equals(x.toString());
-        }catch(Throwable t){XposedBridge.log("ACEFan "+VERSION+": APK verification failed "+t);return false;}
+            targetSha256=x.toString();
+            return APK_HASH.equals(targetSha256);
+        }catch(Throwable t){targetSha256="读取失败";XposedBridge.log("ACEFan "+VERSION+": APK verification failed "+t);return false;}
     }
 
     private static final Runnable tick=new Runnable(){@Override public void run(){
@@ -287,7 +297,18 @@ public final class FanHook implements IXposedHookLoadPackage {
             s.put("model",Build.MODEL);s.put("device",Build.DEVICE);s.put("sdk",Build.VERSION.SDK_INT);
             s.put("firmwareProfile",compatible?FanServiceCompat.PROFILE:"none");
             s.put("compatibilityStatus",fused?"runtime-error":compatibilityStatus);
+            s.put("compatibilityStage",compatibilityStage);
             s.put("compatibilityDetail",compatibilityDetail);s.put("targetVersion",targetVersion);
+            s.put("targetPackage",TARGET);s.put("targetSha256",targetSha256);s.put("targetPath",targetPath);
+            s.put("knownApk",knownFirmware?"一致":"不一致");
+            s.put("hardwareGate",hardwareGate);
+            s.put("targetScope","com.oplus.exsystemservice");
+            StringBuilder tr=new StringBuilder();
+            for(String line:FanServiceCompat.lastTrace()){
+                if(tr.length()+line.length()>1200){tr.append("\n…（轨迹已截断）");break;}
+                if(tr.length()>0)tr.append("\n");tr.append(line);
+            }
+            s.put("compatibilityTrace",tr.toString());
             s.put("phase",phase);s.put("handoffRemainingMs",remaining);s.put("active",active);s.put("reason",decisionReason);
             s.put("oem",lastOem<0?JSONObject.NULL:lastOem);s.put("candidate",lastCandidate<0?JSONObject.NULL:lastCandidate);s.put("request",lastRequest<0?JSONObject.NULL:lastRequest);s.put("curve",chargeCurve.level());
             double[] temps={s.optDouble("battery",Double.NaN),s.optDouble("board",Double.NaN),s.optDouble("fan",Double.NaN),s.optDouble("mos",Double.NaN)};
