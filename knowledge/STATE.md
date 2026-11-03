@@ -46,3 +46,11 @@
 截至 **2026-11-03 19:21**，0.3.0-compat 已签名覆盖安装，但原厂服务 PID `6166` 未重启，仍加载旧 Hook `0.2.1-eco`。本次管理没有重新查询设备；此记录不说明当前 PID、加载版本或风扇实际状态。必须在用户正常重载后验证运行 Hook 和既有功能。
 
 没有其他真实 ROM/框架组合的功能实测证据；新版重载后的增强、锁屏衔接、真正解锁后2秒交还、关闭/拔线、兼容页和导出等仍在任务中。离线编译、指纹与合成测试都不能代替物理验收。
+## 设备兼容报告 0.3.2-report（2026-11-03）
+
+- 源码提交 `fcb95d9`；App `0.3.2-report` / versionCode 7，运行 Hook 仍为 `0.3.1-report`（本次 Hook 逻辑未再改）。
+- 新增 `DiagnosticReport`（纯 Java 格式化，无 Android/Xposed 依赖）与 UI 出口（设置页 + ⋯ 菜单 → 复制/分享/保存 .txt）。`FanServiceCompat` 增加分阶段解析轨迹与失败阶段；`FanHook` 上报 `compatibilityStage`、`targetPath`、`targetSha256`、`knownApk`、`hardwareGate`、`compatibilityTrace`；Provider JSON 字段上限 64→96。
+- 验证：`python3 -m unittest` 44 项管理自测、Java 回归（含真实 OEM APK 11 处指纹与篡改检测）、新增 `DiagnosticReportTest` 45 项、全源码编译、原签名构建与包审计均通过。
+- 参考机实测：覆盖安装 0.3.2 后在后台虚拟屏完成三处出口，复制出的真实报告与设备/ROM/原厂服务 1.4.6 一致。**实测同时暴露并修复了一个真实缺陷**：旧 Hook（0.2.1-eco）运行中时接口段为空却给出“没有明显阻塞项”，现改为顶部警告 + 适配建议第一条说明“缺少上报不是接口通过”。
+- 分发：`dist/0.3.2-report`（忽略目录，含 BUILD_INFO/VALIDATION/SHA256SUMS 与 source.zip）已生成；APK SHA256 `2f548051a46219e65c9947feb58fa18bd3016251953dd40cac0227dcbca043c7`。同一文件已复制到共享目录 `Download/ACE7pro改/风扇助手-0.3.2-report/`，附 `使用说明.md` 与 `SHA256SUMS.txt`。
+- 仍未做：正常重启后的新 Hook 重载与增强/锁屏衔接/2 秒交还/拔线复测；外来机型上报告的真实内容；未推送远端、未创建 tag、未 Publish。
