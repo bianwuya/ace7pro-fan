@@ -41,8 +41,10 @@ public final class DiagnosticReport {
                 .append(" · 运行 Hook ").append(show(in.hookVersion)).append('\n');
         if (!raw(in.generatedAt).isEmpty()) b.append("生成 ").append(raw(in.generatedAt)).append('\n');
         if (in.hookStale) {
-            b.append("注意：运行中的 Hook 不是本 App 版本，标记字段来自旧版或尚未上报。")
-                    .append("请正常重启让新 Hook 加载后再导出一次，否则本报告的接口适配部分是空白的。\n");
+            b.append("注意：运行中的 Hook（").append(show(in.hookVersion))
+                    .append("）与 App（").append(show(in.appVersion)).append("）不是同一版本。")
+                    .append("下方接口适配字段若无内容，是缺少上报而不是接口通过；")
+                    .append("请正常重启让新 Hook 加载后再导出一次。\n");
         }
 
         b.append("\n[1] 设备\n");
@@ -102,11 +104,17 @@ public final class DiagnosticReport {
         boolean injected = "已注入".equals(state) || "只读预览".equals(state);
         StringBuilder b = new StringBuilder();
         boolean any = false;
-        // A stale hook cannot answer the compatibility questions at all; say that before anything else.
+        // A stale hook may or may not have reported the compatibility fields; judge by content.
         if (in.hookStale) {
-            b.append("- 运行中的 Hook 仍是旧版本，接口适配、原厂 APK 哈希、解析轨迹都不会出现在报告里。")
-                    .append("先正常重启让本版 Hook 加载，再重新导出，否则这份报告无法用于适配判断。\n");
-            b.append("- 重启前请勿据此判断兼容性：下面的“结论/失败阶段”为空是缺少上报，不是接口通过。\n");
+            boolean missing = status.isEmpty() || status.equals("pending") || raw(in.trace).isEmpty();
+            b.append("- 运行中的 Hook 是旧版本（").append(show(in.hookVersion)).append("），本报告由它生成。")
+                    .append(missing
+                            ? "接口适配、原厂 APK 哈希或解析轨迹尚未上报，"
+                            : "接口适配字段虽有内容，仍建议以重启后的报告为准，")
+                    .append("请正常重启让本版 Hook 加载后再导出一次。\n");
+            if (missing) {
+                b.append("- 空白的“结论/失败阶段”是缺少上报，不是接口通过；重启前请勿据此判断兼容性。\n");
+            }
             any = true;
         }
         if (isHardwareFail(in.hardwareGate)) {

@@ -106,10 +106,22 @@ public final class DiagnosticReportTest {
         stale.appVersion = "0.3.1-report"; stale.hookVersion = "0.2.1-eco";
         stale.hookState = "已注入"; stale.hookStale = true;
         String st = DiagnosticReport.build(stale);
-        has(st, "运行中的 Hook 不是本 App 版本");
+        has(st, "与 App（0.3.1-report）不是同一版本");
         has(st, "旧版本");
         has(st, "不是接口通过");
         lacks(st, "当前状态没有明显阻塞项");
+        // A stale hook that did report everything must not be described as reporting nothing.
+        DiagnosticReport.Input staleFull = new DiagnosticReport.Input();
+        staleFull.model = "PMS110"; staleFull.device = "OP64F1L1";
+        staleFull.appVersion = "0.3.4-report"; staleFull.hookVersion = "0.3.1-report";
+        staleFull.hookState = "已注入"; staleFull.hookStale = true;
+        staleFull.status = "known-firmware"; staleFull.profile = "oplus-fan-v3-code1";
+        staleFull.trace = "11 处关键方法指纹全部通过";
+        staleFull.targetSha256 = "3eeee6cd";
+        String sf = DiagnosticReport.build(staleFull);
+        has(sf, "仍建议以重启后的报告为准");
+        lacks(sf, "尚未上报");
+        lacks(sf, "空白的“结论/失败阶段”");
         // Injected + fresh but no status field must also not be read as "no blocker".
         DiagnosticReport.Input blank = new DiagnosticReport.Input();
         blank.model = "PMS110"; blank.device = "OP64F1L1";
