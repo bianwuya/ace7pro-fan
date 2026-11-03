@@ -200,7 +200,12 @@ def sign():
         footer = '\n## 构建信息\n\n- 源码提交：`' + report['source_commit'] + '`\n- APK SHA256：`' + audit['sha256'] + '`\n'
         footer += '- 本包通过自动化离线构建/签名审计；私有OEM样本测试在云端跳过，不代表多系统或风扇物理效果验收。\n'
         (output / 'RELEASE_NOTES.md').write_text(render_notes(notes, version, report['source_commit']) + footer)
+        # The v4 sidecar belongs to the former unsigned/path names and is not a useful Release asset.
+        for sidecar in output.glob('*.idsig'):
+            sidecar.unlink()
         checksums(output)
+        if any(p.suffix == '.idsig' for p in output.iterdir()):
+            raise project.ProjectError('unexpected signature sidecar in signed bundle')
     finally:
         shutil.rmtree(temporary_root, ignore_errors=True)
     print('Signed with the pinned original identity; key files removed. Draft candidate only, no publication.')

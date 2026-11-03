@@ -112,6 +112,14 @@ class CloudReleaseTests(unittest.TestCase):
             with self.assertRaisesRegex(project.ProjectError, 'fixture-stop'):
                 cloud_release.sign()
 
+    def test_signed_job_is_tag_only_and_allows_manual_retry(self):
+        text = (project.ROOT / '.github/workflows/build.yml').read_text()
+        self.assertIn("startsWith(github.ref, 'refs/tags/v')", text)
+        self.assertIn("github.event_name == 'push' || github.event_name == 'workflow_dispatch'", text)
+        block = text[text.index('  signed-draft:'):]
+        self.assertNotIn('pull_request', block)
+        self.assertIn('environment: release-signing', block)
+
     def test_source_links_rewritten_for_release_body(self):
         text = '[limits](../../COMPATIBILITY.md)\n[web](https://example.com)'
         rendered = cloud_release.render_notes(text, self.version, 'a' * 40)
@@ -126,7 +134,7 @@ class CloudReleaseTests(unittest.TestCase):
         text = (project.ROOT / '.github/workflows/build.yml').read_text()
         self.assertNotIn('pull_request_target', text)
         self.assertIn("environment: release-signing", text)
-        self.assertIn("github.event_name == 'push'", text)
+        self.assertIn("startsWith(github.ref, 'refs/tags/v')", text)
         self.assertIn("if: always()", text)
         self.assertNotIn('path: build/', text)
         self.assertNotIn('gh release edit', text)

@@ -55,7 +55,7 @@ jobs:
   signed-draft:
     name: Original-signature draft (version tags only)
     needs: unsigned
-    if: github.repository == 'bianwuya/ace7pro-fan' && github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')
+    if: github.repository == 'bianwuya/ace7pro-fan' && startsWith(github.ref, 'refs/tags/v') && (github.event_name == 'push' || github.event_name == 'workflow_dispatch')
     runs-on: ubuntu-24.04
     timeout-minutes: 20
     environment: release-signing
