@@ -162,10 +162,11 @@ def require_ci_tag():
 
 
 def sign():
+    # Consume and remove them before plan/audit can spawn git/Java/native tool children.
+    encoded = os.environ.pop('ACEFAN_KEYSTORE_B64', '')
+    password = os.environ.pop('ACEFAN_STORE_PASSWORD', '')
     require_ci_tag()
     cfg, version, notes = plan(tag=selected_tag())
-    encoded = os.environ.get('ACEFAN_KEYSTORE_B64', '')
-    password = os.environ.get('ACEFAN_STORE_PASSWORD', '')
     if not encoded or not password:
         raise project.ProjectError('signing Secrets are not configured; refusing unsigned/debug fallback or replacement keys')
     if '\n' in password or '\r' in password or len(encoded) > 65536:

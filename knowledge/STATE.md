@@ -25,6 +25,15 @@
 
 详细本地日志在忽略的 `build/project-management-verify.log`、`build/project-management-release.log`；日志路径仅用于本机排查，不纳入源码或公开分发。
 
+## GitHub自动APK构建与Draft流程（2026-11-03）
+
+- 实现提交 `144a291`：普通main/PR/manual进行无密钥APK构建；精确版本tag才允许原签名job及Release草稿。版本/tag/main祖先/versionCode递增校验，版本说明必须有“新增 / 修复 / 验证与限制”，不自动创建tag或正式Publish。
+- 原有24项管理自测加18项发布门禁/隔离测试，合计 **42项通过**，其中验证Secret在任何子进程之前从环境移除。构建脚本新增显式unsigned模式，本地默认同签名行为保留。
+- 真实云端 [APK工作流41635143748](https://github.com/bianwuya/ace7pro-fan/actions/runs/41635143748) 在 `144a29166c543439d4b1791e0c7d5f20849cabba` 成功；原有检查工作流41635143870也成功。Ubuntu24.04/JDK17/SDK工具35.0.0、SDK35编译+28资源、固定R8/Xposed下载摘要，确实完成javac、D8、资源打包、对齐和unsigned审计。
+- 已下载该次Actions artifact到忽略的 `build/cloud-run-41635143748/`，逐项SHA256和源提交校验通过，NOTES有新增/修复/验证限制，APK再次本地unsigned审计通过。其SHA256是 `6e451db381cc4d90e5adb50bea64c9ef3097d8bcc10168d1cbb37cc63019cae9`；**未签名，不能作为已安装签名版的更新包**。
+- 签名job在普通main push上正确SKIPPED；原密钥与口令尚未上传，两个Secrets为空。缺Secrets时阻止签名/草稿，不能用debug/换签代替。签名到Draft端到端仍待用户单独授权云端加密托管并验证，不虚称已完成正式包发布。
+- 流程/操作入口 [CLOUD_RELEASE.md](CLOUD_RELEASE.md)，当前版本正文 [NOTES.md](../releases/0.3.0-compat/NOTES.md)。没有改runtime源码/资源/Manifest、安装、重启或改变仓库私有性。此云端只做离线验证，私有OEM样本在云端明确SKIPPED，不能补作真机验收。
+
 ## 设备状态的历史证据
 
 截至 **2026-11-03 19:21**，0.3.0-compat 已签名覆盖安装，但原厂服务 PID `6166` 未重启，仍加载旧 Hook `0.2.1-eco`。本次管理没有重新查询设备；此记录不说明当前 PID、加载版本或风扇实际状态。必须在用户正常重载后验证运行 Hook 和既有功能。

@@ -100,6 +100,18 @@ class CloudReleaseTests(unittest.TestCase):
             with self.assertRaisesRegex(project.ProjectError, 'Secrets are not configured'):
                 cloud_release.sign()
 
+    def test_signing_secrets_not_inherited_by_plan_subprocesses(self):
+        env = {'GITHUB_ACTIONS': 'true', 'GITHUB_REPOSITORY': cloud_release.REPOSITORY,
+               'GITHUB_REF_TYPE': 'tag', 'GITHUB_REF_NAME': self.tag,
+               'ACEFAN_KEYSTORE_B64': 'dGVzdA==', 'ACEFAN_STORE_PASSWORD': 'fixture'}
+        def stopped_plan(**kwargs):
+            self.assertNotIn('ACEFAN_KEYSTORE_B64', os.environ)
+            self.assertNotIn('ACEFAN_STORE_PASSWORD', os.environ)
+            raise project.ProjectError('fixture-stop; no key file is accessed')
+        with patch.dict(os.environ, env, clear=True), patch.object(cloud_release, 'plan', side_effect=stopped_plan):
+            with self.assertRaisesRegex(project.ProjectError, 'fixture-stop'):
+                cloud_release.sign()
+
     def test_source_links_rewritten_for_release_body(self):
         text = '[limits](../../COMPATIBILITY.md)\n[web](https://example.com)'
         rendered = cloud_release.render_notes(text, self.version, 'a' * 40)

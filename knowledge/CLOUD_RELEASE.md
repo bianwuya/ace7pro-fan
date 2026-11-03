@@ -4,7 +4,7 @@
 
 ## 当前工作流现状
 
-已有 [源码检查工作流](../.github/workflows/check.yml) 保持轻量检查/测试。新增 [APK与草稿工作流](../.github/workflows/build.yml) 及脚本已落地，并在本地通过发布说明、版本标签与权限边界自测，以及无密钥打包/审计。云端首次运行及下载产物验证尚待执行，当前不能称云构建已通过；状态以 [STATE.md](STATE.md) 为准。
+已有 [源码检查工作流](../.github/workflows/check.yml) 保持轻量检查/测试。新增 [APK与草稿工作流](../.github/workflows/build.yml) 及脚本已落地，并在本地通过发布说明、版本标签与权限边界自测，以及无密钥打包/审计。首轮 [GitHub实际构建41635143748](https://github.com/bianwuya/ace7pro-fan/actions/runs/41635143748) 已通过，源码提交为 `144a291`；下载的unsigned产物已复核SHA256、构建记录、说明结构和APK审计。签名job因非版本tag正确SKIPPED，不能算同签名Draft已验证；状态以 [STATE.md](STATE.md) 为准。
 
 上游仓库应继续保持私有：`bianwuya/ace7pro-fan` 的 GitHub Release 和附件继承仓库访问权限，不会因创建 Draft 而公开给仓库外人员下载。本文不授权改变仓库可见性。
 
@@ -25,7 +25,7 @@
 3. 当前 `AndroidManifest.xml` 的 `versionCode` 必须严格大于之前版本 tag 的 `versionCode`；不能复用或降低已发布版本号。
 4. 构建与签名结果的公开证书 SHA-256 必须匹配 [`project.json`](../project.json) 中固定的 `signer_certificate_sha256`。该值是公开身份校验，不是密钥。当前固定指纹为 `e3977f9ff13304e9a48106cd8b2c3e68abe8ea50cbba5ad90b118500265898d9`。
 
-版本更新时同步修改 `APP_VERSION` 与 Manifest 的 `versionName`，并增加 Manifest `versionCode`；仅在 Hook 策略发生变化时更新 `HOOK_VERSION`。新增和修复要逐项写入对应版本的 NOTES，并准确列出验证与尚未验证事项。
+版本更新时同步修改 `APP_VERSION` 与 Manifest 的 `versionName`，并增加 Manifest `versionCode`；当 Hook 代码/协议发生变化时更新 `HOOK_VERSION`。新增和修复要逐项写入对应版本的 NOTES，并准确列出验证与尚未验证事项。
 
 ## 签名 Secret 与临时文件
 
@@ -38,7 +38,7 @@ gh secret set ACEFAN_KEYSTORE_B64 --repo bianwuya/ace7pro-fan --env release-sign
 gh secret set ACEFAN_STORE_PASSWORD --repo bianwuya/ace7pro-fan --env release-signing < /secure/local/store-password.txt
 ```
 
-不要把密钥、base64、口令或 token 粘贴到聊天、Issue、PR、日志，也不要提交进 Git。Runner 上只在系统临时目录恢复 keystore 与口令文件，限制为当前 runner 用户可读（`umask 077`、文件权限 `0600`），不得写入仓库或 artifact；无论成功、失败或取消，都须以 `always()` 清理临时材料。Secret 缺失、解码/读取失败或签名身份不匹配均必须拒绝发布。若原签名密钥遗失，不能自动换签；必须先找回同一签名身份，否则该包不能作为已安装应用的升级包。
+不要把密钥、base64、口令或 token 粘贴到聊天、Issue、PR、日志，也不要提交进 Git。Runner 上只在系统临时目录恢复 keystore 与口令文件，限制为当前 runner 用户可读（`umask 077`、文件权限 `0600`），不得写入仓库或 artifact；签名Python进程在调用任何子进程前即从环境移除两个Secret，避免传给git/Java/native子进程。无论成功、失败或取消，都以Python finally和 `always()` 清理临时材料（runner被硬终止时仍依赖托管临时机销毁）。Secret 缺失、解码/读取失败或签名身份不匹配均必须拒绝发布。若原签名密钥遗失，不能自动换签；必须先找回同一签名身份，否则该包不能作为已安装应用的升级包。
 
 ## 固定 CI 工具链
 
@@ -48,7 +48,7 @@ gh secret set ACEFAN_STORE_PASSWORD --repo bianwuya/ace7pro-fan --env release-si
 
 ## 后续版本操作示例
 
-以 `0.3.1` 为例，先更新 `APP_VERSION`、Manifest `versionName`/`versionCode`，若 Hook 逻辑有变化再更新 `HOOK_VERSION`；新建 `releases/0.3.1/NOTES.md`，按固定三段写明新增、修复、验证与限制；本地运行 `python3 tools/project.py check`、`python3 tools/project.py test`，再审查差异并提交、推送到 `main`。确认目标提交已在远端 `main` 历史后，才由获授权的人创建并推送 `v0.3.1` tag，例如：
+以 `0.3.1` 为例，先更新 `APP_VERSION`、Manifest `versionName`/`versionCode`，若 Hook 代码/协议有变化再更新 `HOOK_VERSION`；新建 `releases/0.3.1/NOTES.md`，按固定三段写明新增、修复、验证与限制；本地运行 `python3 tools/project.py check`、`python3 tools/project.py test`，再审查差异并提交、推送到 `main`。确认目标提交已在远端 `main` 历史后，才由获授权的人创建并推送 `v0.3.1` tag，例如：
 
 ```sh
 git tag -a v0.3.1 -m "ACE7pro 风扇助手 0.3.1"

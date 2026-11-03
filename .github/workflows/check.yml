@@ -21,5 +21,5 @@ jobs:
         run: python3 tools/project.py check
       - name: Management and pure Java tests (no signing keys or OEM samples)
         run: python3 tools/project.py test
-# This template becomes active only after an authorized push to GitHub.
+# Lightweight source gates; complete unsigned packaging is in build.yml.
 # It does not build/sign/install APKs; absent private OEM fixtures are explicitly SKIPPED.
