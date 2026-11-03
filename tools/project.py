@@ -350,19 +350,29 @@ def audit_zip(apk):
             raise ProjectError('Xposed API classes were bundled instead of compileOnly')
 
 
-def audit_apk(apk, root=ROOT, cfg=None, version=None):
+def audit_apk(apk, root=ROOT, cfg=None, version=None, unsigned=False):
     if cfg is None or version is None:
         snap = Snapshot(root); cfg = config_for(snap); version = metadata(snap.read, cfg)
     apk = Path(apk).resolve()
     audit_zip(apk)
     signer = root / 'build-tools/apksigner-extracted/usr/share/java/apksigner-35.0.2.jar'
-    output = run(['java', '-cp', signer, 'com.android.apksigner.ApkSignerTool',
-                  'verify', '--verbose', '--print-certs', apk], root, capture=True).decode('utf-8', 'replace')
-    certs = re.findall(r'Signer #\d+ certificate SHA-256 digest: ([a-fA-F0-9]{64})', output)
-    if len(certs) != 1 or certs[0].lower() != cfg['signer_certificate_sha256']:
-        raise ProjectError('APK signing identity differs from pinned public certificate')
-    if 'Verified using v3 scheme (APK Signature Scheme v3): true' not in output:
-        raise ProjectError('expected Android9+ v3 signature')
+    certificate = None
+    command = ['java', '-cp', signer, 'com.android.apksigner.ApkSignerTool',
+               'verify', '--verbose', '--print-certs', apk]
+    if unsigned:
+        result = subprocess.run([str(a) for a in command], cwd=root, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+        if result.returncode == 0:
+            raise ProjectError('expected an unsigned validation APK, found a signed APK')
+        if b'Missing META-INF/MANIFEST.MF' not in result.stderr + result.stdout and b'No signatures' not in result.stderr + result.stdout:
+            raise ProjectError('unsigned APK verification failed for a reason other than missing signatures')
+    else:
+        output = run(command, root, capture=True).decode('utf-8', 'replace')
+        certs = re.findall(r'Signer #\d+ certificate SHA-256 digest: ([a-fA-F0-9]{64})', output)
+        if len(certs) != 1 or certs[0].lower() != cfg['signer_certificate_sha256']:
+            raise ProjectError('APK signing identity differs from pinned public certificate')
+        if 'Verified using v3 scheme (APK Signature Scheme v3): true' not in output:
+            raise ProjectError('expected Android9+ v3 signature')
+        certificate = certs[0].lower()
     run(['zipalign', '-c', '4', apk], root)
     badging = run(['aapt', 'dump', 'badging', apk], root, capture=True).decode('utf-8', 'replace')
     found = re.search(r"package: name='([^']+)' versionCode='([^']+)' versionName='([^']+)'", badging)
@@ -376,8 +386,9 @@ def audit_apk(apk, root=ROOT, cfg=None, version=None):
     if sorted(permissions) != sorted(cfg['allowed_permissions']):
         raise ProjectError('APK permissions differ from contract')
     digest = hashlib.sha256(apk.read_bytes()).hexdigest()
-    print(f'PASS APK audit: package/version, pinned signer, v3, alignment, permission/entry isolation; sha256={digest}')
-    return {'sha256': digest, 'signer_certificate_sha256': certs[0].lower()}
+    kind = 'UNSIGNED (not installable)' if unsigned else 'pinned signer/v3'
+    print(f'PASS APK audit: {kind}, package/version, alignment, permission/entry isolation; sha256={digest}')
+    return {'sha256': digest, 'signer_certificate_sha256': certificate}
 
 
 def dirty(root=ROOT):
@@ -481,7 +492,7 @@ def main():
         sub.add_parser(name)
     p = sub.add_parser('check'); p.add_argument('--staged', action='store_true')
     p = sub.add_parser('release'); p.add_argument('--output', required=True)
-    p = sub.add_parser('audit-apk'); p.add_argument('apk')
+    p = sub.add_parser('audit-apk'); p.add_argument('apk'); p.add_argument('--unsigned', action='store_true')
     args = parser.parse_args()
     try:
         if args.command in ('test', 'verify', 'release'):
@@ -499,7 +510,7 @@ def main():
         elif args.command == 'status':
             status()
         elif args.command == 'audit-apk':
-            audit_apk(args.apk)
+            audit_apk(args.apk, unsigned=args.unsigned)
         else:
             install_hooks()
         return 0

@@ -2,17 +2,24 @@
 set -eu
 cd "$(dirname "$0")"
 B="$PWD/build-tools"
+MODE=signed
+case "${1:-}" in
+    "") ;;
+    --unsigned) MODE=unsigned ;;
+    *) echo "Usage: sh build.sh [--unsigned]" >&2; exit 2 ;;
+esac
+KEYSTORE="${ACEFAN_KEYSTORE_PATH:-$B/keys/pilot.jks}"
+PASSWORD_FILE="${ACEFAN_PASSWORD_PATH:-$B/keys/pass.txt}"
 V=$(sed -n 's/.*APP_VERSION = "\([^"]*\)".*/\1/p' src/dev/eta/acefan/BuildInfo.java)
 test -n "$V"
-if [ ! -f "$B/keys/pilot.jks" ] || [ ! -f "$B/keys/pass.txt" ]; then
+if [ "$MODE" = signed ] && { [ ! -f "$KEYSTORE" ] || [ ! -f "$PASSWORD_FILE" ]; }; then
     echo "Existing signing identity is required; refusing to generate replacement keys." >&2
     exit 1
 fi
 python3 tools/project.py check
 # These are disposable compiler outputs only; retain old signed APKs and signing keys.
 rm -rf build/classes build/dex
-mkdir -p build/classes build/dex "$B/keys"
-chmod 700 "$B/keys"
+mkdir -p build/classes build/dex
 find src -name '*.java' -print > build/sources.txt
 javac --release 8 -encoding UTF-8 -Xlint:-options -classpath "$B/platforms/android-35/android.jar:$B/lib/xposed-api-82.jar" -d build/classes @build/sources.txt
 jar cf build/code.jar -C build/classes .
@@ -31,9 +38,15 @@ with ZipFile(p/'unsigned.apk') as z:
     assert not any('xposed-api' in n for n in z.namelist())
 PY
 zipalign -f 4 build/unsigned.apk build/aligned.apk
+if [ "$MODE" = unsigned ]; then
+    cp build/aligned.apk "build/ACE7pro_Fan_${V}-unsigned.apk"
+    python3 tools/project.py audit-apk --unsigned "build/ACE7pro_Fan_${V}-unsigned.apk"
+    echo "Unsigned validation APK only: cannot replace or install as the signed app."
+    exit 0
+fi
 # This existing key uses the store password; let apksigner reuse it. A second file:
 # option consumes another line and fails for a one-line password file.
-java -cp "$B/apksigner-extracted/usr/share/java/apksigner-35.0.2.jar" com.android.apksigner.ApkSignerTool sign --ks "$B/keys/pilot.jks" --ks-key-alias acefan --ks-pass "file:$B/keys/pass.txt" --out build/ACE7pro_Fan_$V.apk build/aligned.apk
+java -cp "$B/apksigner-extracted/usr/share/java/apksigner-35.0.2.jar" com.android.apksigner.ApkSignerTool sign --ks "$KEYSTORE" --ks-key-alias acefan --ks-pass "file:$PASSWORD_FILE" --out build/ACE7pro_Fan_$V.apk build/aligned.apk
 java -cp "$B/apksigner-extracted/usr/share/java/apksigner-35.0.2.jar" com.android.apksigner.ApkSignerTool verify --verbose build/ACE7pro_Fan_$V.apk
 zipalign -c 4 build/ACE7pro_Fan_$V.apk
 aapt dump badging "build/ACE7pro_Fan_$V.apk" | grep -q "versionName='$V'" || { echo "versionName does not match BuildInfo: $V" >&2; exit 1; }

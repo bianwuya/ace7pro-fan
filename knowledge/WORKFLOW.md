@@ -61,3 +61,7 @@ python3 tools/project.py release --output dist/0.3.0-compat-local-check
 - 不假设远端、分支保护或 CI；执行前检查实际配置。不要自动创建后台定时任务。
 - 交付时分别报告文档/代码变更、测试、离线构建、设备安装与实机验收证据；未做的层级明确写为待办。
 - 详细当前证据与时点：[STATE.md](STATE.md)；待办与验收标准：[TASKS.md](../TASKS.md)。
+
+## GitHub自动构建
+
+版本包自动化入口与新增/修复说明规范见 [CLOUD_RELEASE.md](CLOUD_RELEASE.md)。普通push/PR无密钥，版本tag才走原签名Draft；缺Secret明确阻止，不能自动换签。此独立工作流不改变本地 `release` 不联网/不发布的边界。

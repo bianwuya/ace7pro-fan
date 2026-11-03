@@ -30,6 +30,14 @@ python3 tools/project.py verify       # 再做完整 Android 源码编译，不�
 
 **兼容矩阵、来源、验证与限制：[COMPATIBILITY.md](COMPATIBILITY.md)。** 安装/观测下限 Android 9，不代表所有 ROM 都支持增强；没有其他真实固件样本就不把它们写成已实测。
 
+## GitHub 自动构建与版本发布
+
+[APK 工作流](.github/workflows/build.yml) 在 main 提交、PR 或手动运行时生成 **unsigned 检查包**，不读取签名密钥；产物见 Actions 的 Artifacts，不能直接覆盖已安装的签名版。
+
+推送 `v<APP_VERSION>` 标签时才进入原签名构建及 **Release 草稿**流程。发布说明必须来自 `releases/<APP_VERSION>/NOTES.md`，有“新增 / 修复 / 验证与限制”三个非空列表；缺失、版本/tag不一致或versionCode回退会阻止发布。草稿需人工审核后正式Publish。
+
+签名环境 `release-signing` 的两个 Secrets 尚未配置，原私钥仍留本地；未获单独授权前不上传私钥。缺少Secrets时明确失败，绝不用另一把密钥或debug签名顶替。完整操作见 [云端构建与发布](knowledge/CLOUD_RELEASE.md)。实际运行证据见 [状态快照](knowledge/STATE.md)。
+
 ## 原有控制行为不变
 
 - 只在有线充电中、息屏、原厂自动模式及原厂开关允许时按电池温度增强。
@@ -59,7 +67,8 @@ Linux ARM64：Java 编译到 Java8，D8/编译 Android35；AAPT1 使用 Android2
 
 ```sh
 sh tests/run.sh
-sh build.sh
+sh build.sh              # 原签名本地构建
+sh build.sh --unsigned   # 无密钥检查包，不可安装
 ```
 
 产物：`build/ACE7pro_Fan_0.3.0-compat.apk`。纯 Java 测试涵盖曲线、锁屏衔接、采样、兼容门槛、合成解析与诊断新鲜度。有本地私有参考 APK 时还运行 11 处指纹及变体测试；参考文件不随源码分发，缺少时脚本明确显示 SKIPPED，不假称已执行。
