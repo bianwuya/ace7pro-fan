@@ -117,6 +117,7 @@ public final class FanServiceCompat {
             Field event=optionalField(ctrl,"mLastUEvent",int.class);
             Field level=optionalField(ctrl,"mCurrentSpeedLevel",int.class);
             step("档位上限："+(max!=null?max:maximum!=null?maximum:"读取入口缺失，将报告本环节"));
+            if(max==null&&maximum==null&&config!=null){step("配置实际 int() 候选："+maxMethods);step("配置实际字段："+fieldInventory(config));}
             step("控制请求观察："+(setters.isEmpty()?"不可用；候选仍可运行，锁屏衔接等待确认":setters.toString()));
             step("健康事件："+(event==null?"未知，保留原厂故障处理":event.toString()));
             step("确认字段："+(updated==null?"不可用；不虚报确认":updated.toString()));

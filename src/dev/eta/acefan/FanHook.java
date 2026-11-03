@@ -221,6 +221,10 @@ public final class FanHook implements IXposedHookLoadPackage {
                 @Override protected void afterHookedMethod(MethodHookParam p){
                     AppliedDecision d=(AppliedDecision)p.getObjectExtra("acefan.decision");
                     if(p.hasThrowable()){failure("原厂控制调用",FanServiceCompat.methodKey(setter),p.getThrowable());return;}
+                    if(((Integer)p.args[0])<=0){
+                        // An OEM stop also ends a previous session when no new candidate was applied.
+                        cancelContinuation();active=false;decisionReason="原厂要求停转，已保留该结果";
+                    }
                     if(d==null)return;
                     try{
                         int request=(Integer)p.args[0];Boolean updated=found.confirmed(p.thisObject);Integer level=found.level(p.thisObject);
