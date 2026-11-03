@@ -47,6 +47,13 @@ class ProjectTests(unittest.TestCase):
         with self.assertRaises(project.ProjectError):
             project.metadata(lambda p: (self.root / p).read_bytes(), self.cfg)
 
+    def test_signing_uses_file_once_and_never_autogenerates_identity(self):
+        build = (project.ROOT / 'build.sh').read_text()
+        self.assertIn('--ks-pass "file:', build)
+        self.assertNotIn('--key-pass "file:', build)
+        self.assertNotIn('$(head -n 1', build)
+        self.assertNotIn('-genkeypair', build)
+
     def test_valid_metadata(self):
         _, meta = self.checked()
         self.assertGreater(meta['version_code'], 0)

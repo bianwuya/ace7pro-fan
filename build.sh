@@ -31,7 +31,9 @@ with ZipFile(p/'unsigned.apk') as z:
     assert not any('xposed-api' in n for n in z.namelist())
 PY
 zipalign -f 4 build/unsigned.apk build/aligned.apk
-java -cp "$B/apksigner-extracted/usr/share/java/apksigner-35.0.2.jar" com.android.apksigner.ApkSignerTool sign --ks "$B/keys/pilot.jks" --ks-key-alias acefan --ks-pass "file:$B/keys/pass.txt" --key-pass "file:$B/keys/pass.txt" --out build/ACE7pro_Fan_$V.apk build/aligned.apk
+# This existing key uses the store password; let apksigner reuse it. A second file:
+# option consumes another line and fails for a one-line password file.
+java -cp "$B/apksigner-extracted/usr/share/java/apksigner-35.0.2.jar" com.android.apksigner.ApkSignerTool sign --ks "$B/keys/pilot.jks" --ks-key-alias acefan --ks-pass "file:$B/keys/pass.txt" --out build/ACE7pro_Fan_$V.apk build/aligned.apk
 java -cp "$B/apksigner-extracted/usr/share/java/apksigner-35.0.2.jar" com.android.apksigner.ApkSignerTool verify --verbose build/ACE7pro_Fan_$V.apk
 zipalign -c 4 build/ACE7pro_Fan_$V.apk
 aapt dump badging "build/ACE7pro_Fan_$V.apk" | grep -q "versionName='$V'" || { echo "versionName does not match BuildInfo: $V" >&2; exit 1; }
