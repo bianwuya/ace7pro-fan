@@ -37,7 +37,7 @@ public final class FanHook implements IXposedHookLoadPackage {
     private static final AtomicBoolean resolving=new AtomicBoolean();
     private static volatile String compatibilityStatus="pending",compatibilityDetail="等待原厂风扇初始化",targetVersion="未知";
     private static volatile String compatibilityStage="",targetSha256="未知",targetPath="暂无",hardwareGate="未知";
-    private static volatile boolean knownFirmware;
+    private static volatile boolean knownFirmware,apkChecked;
     private static final java.util.List<XC_MethodHook.Unhook> installed=new java.util.ArrayList<XC_MethodHook.Unhook>();
     private static final Uri API=Uri.parse("content://dev.eta.acefan.data");
     private static final AtomicBoolean started=new AtomicBoolean(), queued=new AtomicBoolean();
@@ -250,6 +250,7 @@ public final class FanHook implements IXposedHookLoadPackage {
             }
         }},20000L);
         sampleSoon();
+        worker.post(new Runnable(){@Override public void run(){verifyApk();}});
         XposedBridge.log("ACEFan "+VERSION+": telemetry initialized; enhancement waits for interface/code verification");
     }
 
@@ -263,15 +264,22 @@ public final class FanHook implements IXposedHookLoadPackage {
         }
     }
 
+    /**
+     * Reads the target APK path and SHA-256 once, before interface resolution. Unsupported
+     * firmware must still report its own APK hash: that hash is the evidence needed to adapt it.
+     */
     private static boolean verifyApk(){
+        if(apkChecked)return knownFirmware;
+        apkChecked=true;
         try{
             targetPath=String.valueOf(context.getPackageCodePath());
             MessageDigest md=MessageDigest.getInstance("SHA-256");byte[] buffer=new byte[32768];
             try(FileInputStream in=new FileInputStream(context.getPackageCodePath())){int n;while((n=in.read(buffer))>0)md.update(buffer,0,n);}
             StringBuilder x=new StringBuilder();for(byte b:md.digest())x.append(String.format(java.util.Locale.US,"%02x",b&255));
             targetSha256=x.toString();
-            return APK_HASH.equals(targetSha256);
-        }catch(Throwable t){targetSha256="读取失败";XposedBridge.log("ACEFan "+VERSION+": APK verification failed "+t);return false;}
+            knownFirmware=APK_HASH.equals(targetSha256);
+        }catch(Throwable t){targetSha256="读取失败";XposedBridge.log("ACEFan "+VERSION+": APK verification failed "+t);}
+        return knownFirmware;
     }
 
     private static final Runnable tick=new Runnable(){@Override public void run(){
@@ -300,7 +308,7 @@ public final class FanHook implements IXposedHookLoadPackage {
             s.put("compatibilityStage",compatibilityStage);
             s.put("compatibilityDetail",compatibilityDetail);s.put("targetVersion",targetVersion);
             s.put("targetPackage",TARGET);s.put("targetSha256",targetSha256);s.put("targetPath",targetPath);
-            s.put("knownApk",knownFirmware?"一致":"不一致");
+            s.put("knownApk",!apkChecked?"未校验":knownFirmware?"一致":"不一致");
             s.put("hardwareGate",hardwareGate);
             s.put("targetScope","com.oplus.exsystemservice");
             StringBuilder tr=new StringBuilder();

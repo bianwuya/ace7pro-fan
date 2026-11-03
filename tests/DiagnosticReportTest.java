@@ -118,7 +118,22 @@ public final class DiagnosticReportTest {
         has(bl, "上报缺失而不是通过");
         lacks(bl, "当前状态没有明显阻塞项");
 
-        // 7. Resolution stage tracking is observable and cleared per attempt.
+        // 7. An unchecked APK hash must render as "未校验", never as "不一致".
+        DiagnosticReport.Input unchecked = new DiagnosticReport.Input();
+        unchecked.model = "PMS110"; unchecked.device = "OP64F1L1";
+        unchecked.hookState = "已注入"; unchecked.frameworkApi = "93";
+        unchecked.status = "unsupported"; unchecked.stage = "控制器与档位上限方法";
+        unchecked.detail = "NoSuchMethodException: OplusFanController.s []";
+        unchecked.knownApk = "未校验";
+        unchecked.targetPath = "/system_ext/priv-app/OplusExSystemService/OplusExSystemService.apk";
+        unchecked.targetSha256 = "0123456789abcdef";
+        String uc = DiagnosticReport.build(unchecked);
+        has(uc, "参考固件哈希：未校验");
+        lacks(uc, "不一致（同接口代码仍可适配）");
+        has(uc, "控制器与档位上限方法");
+        has(uc, "0123456789abcdef");
+
+        // 8. Resolution stage tracking is observable and cleared per attempt.
         FanServiceCompat.resetTrace();
         ok(FanServiceCompat.lastTrace().isEmpty());
         ok("".equals(FanServiceCompat.stageOf(new RuntimeException("plain"))));

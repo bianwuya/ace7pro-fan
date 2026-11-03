@@ -132,9 +132,21 @@ public final class FanServiceCompat {
         Method recalc=exact(base,"f",void.class,Modifier.PUBLIC,String.class);
         Method apply=exact(base,"b",void.class,Modifier.PUBLIC);
         attempting("控制器与档位上限方法");
-        Method set=uniqueMethod(ctrl,void.class,Modifier.PUBLIC,"i",int.class);
-        Method health=exact(ctrl,"s",boolean.class,Modifier.PUBLIC);
-        Method maximum=uniqueMethod(config,int.class,Modifier.PUBLIC,"d");
+        Method set;
+        try {
+            set=uniqueMethod(ctrl,void.class,Modifier.PUBLIC,"i",int.class);
+        } catch (NoSuchMethodException e) {
+            step("控制器 set 候选（public void(int)）：" + candidates(ctrl, void.class, int.class));
+            throw e;
+        }
+        Method health=healthMethod(ctrl);
+        Method maximum;
+        try {
+            maximum=uniqueMethod(config,int.class,Modifier.PUBLIC,"d");
+        } catch (NoSuchMethodException e) {
+            step("档位上限候选（public int()）：" + candidates(config, int.class));
+            throw e;
+        }
         attempting("控制器状态字段");
         Field updated=field(ctrl,"mCurrentSpeedLevelUpdated",boolean.class);
         Field event=field(ctrl,"mLastUEvent",int.class);
@@ -204,6 +216,48 @@ public final class FanServiceCompat {
         Map<String,String> out=new LinkedHashMap<String,String>();
         for(Map.Entry<String,String> e:raw.entrySet())out.put(roleByKey.get(e.getKey()),e.getValue());
         return out;
+    }
+
+    /** Diagnostic: which public methods of this shape exist, for reports on unknown firmware. */
+    static String candidates(Class<?> type, Class<?> returns, Class<?>... args) {
+        StringBuilder b = new StringBuilder();
+        for (Method m : type.getDeclaredMethods()) {
+            int flags = m.getModifiers();
+            if (Modifier.isStatic(flags) || m.isSynthetic()) continue;
+            if (m.getReturnType() != returns) continue;
+            if (!Arrays.equals(m.getParameterTypes(), args)) continue;
+            if (b.length() > 0) b.append(", ");
+            b.append(m.getName()).append('(').append(')').append(returns == boolean.class ? "Z" : returns.getSimpleName());
+            if (b.length() > 240) { b.append(", …"); break; }
+        }
+        return b.length() == 0 ? "无" : b.toString();
+    }
+
+    /**
+     * Controller health getter. The reference firmware names it "s", but obfuscation renames
+     * between ROM builds: a uniquely-shaped public boolean getter is an acceptable substitute
+     * because the 11-method code profile still has to match its body before any hook is installed.
+     */
+    private static Method healthMethod(Class<?> ctrl) throws Exception {
+        try {
+            return exact(ctrl, "s", boolean.class, Modifier.PUBLIC);
+        } catch (NoSuchMethodException absent) {
+            step("控制器无 s()Z；同形候选：" + candidates(ctrl, boolean.class));
+            Method found = null;
+            for (Method m : ctrl.getDeclaredMethods()) {
+                int flags = m.getModifiers();
+                if (Modifier.isStatic(flags) || m.isSynthetic()) continue;
+                if (m.getReturnType() != boolean.class || m.getParameterTypes().length != 0) continue;
+                if ((flags & Modifier.PUBLIC) != Modifier.PUBLIC) continue;
+                if (found != null) throw new NoSuchMethodException("ambiguous controller health: "
+                        + found.getName() + " / " + m.getName() + "（该固件需人工确认）");
+                found = m;
+            }
+            if (found == null) throw absent;
+            step("控制器健康方法改名为：" + found.getName());
+            found.setAccessible(true);
+            return found;
+        }
     }
 
     /** Signature-only fallback is allowed only where unique; code evidence is still mandatory. */

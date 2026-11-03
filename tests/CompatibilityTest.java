@@ -24,6 +24,10 @@ public final class CompatibilityTest {
     enum Controller { INSTANCE; private boolean mCurrentSpeedLevelUpdated; private int mLastUEvent; public void i(int i){} public boolean s(){return true;} public boolean r(){return false;} }
     enum Config { INSTANCE; public int renamedMax(){return 20;} }
     enum BadController { INSTANCE; private int mCurrentSpeedLevelUpdated; private int mLastUEvent; public void i(int i){} public boolean s(){return true;} }
+    /** Health getter renamed by obfuscation: shape is unique, so it must still resolve. */
+    enum RenamedHealth { INSTANCE; private boolean mCurrentSpeedLevelUpdated; private int mLastUEvent; public void i(int i){} public boolean r(){return true;} }
+    /** Two same-shaped boolean getters and no s(): picking either would be a guess, so reject. */
+    enum AmbiguousHealth { INSTANCE; private boolean mCurrentSpeedLevelUpdated; private int mLastUEvent; public void i(int i){} public boolean r(){return true;} public boolean t(){return false;} }
     static FanServiceCompat resolve(FanServiceCompat.Bootstrap b,Class<?> controller)throws Exception {
         return FanServiceCompat.resolve(b,Engine.INSTANCE,controller,Config.class,Strategy.class,Ctx.class,Hdl.class);
     }
@@ -38,6 +42,10 @@ public final class CompatibilityTest {
         ok(good.candidate.getName().equals("renamedCandidate"));
         ok(good.choice.getName().equals("renamed"));ok(good.evidence.size()==11);
         rejects(()->resolve(boot,BadController.class));
+        FanServiceCompat renamed=resolve(boot,RenamedHealth.class);
+        ok(renamed.healthy.getName().equals("r"));
+        ok(renamed.evidence.get("controllerHealth").getName().equals("r"));
+        rejects(()->resolve(boot,AmbiguousHealth.class));
         Engine.INSTANCE.mOrchestrator=new Ambiguous(new Ctx(),new Hdl());rejects(()->resolve(boot,Controller.class));
         Engine.INSTANCE.mOrchestrator=new MissingProtection(new Ctx(),new Hdl());rejects(()->resolve(boot,Controller.class));
         Engine.INSTANCE.mOrchestrator=null;rejects(()->resolve(boot,Controller.class));
