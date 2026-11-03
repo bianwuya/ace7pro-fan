@@ -120,6 +120,14 @@ class CloudReleaseTests(unittest.TestCase):
         self.assertNotIn('pull_request', block)
         self.assertIn('environment: release-signing', block)
 
+    def test_descriptive_suffix_is_not_marked_prerelease(self):
+        import re
+        def is_pre(v):
+            return bool(re.search(r'(?i)(?:^|[-.])(?:alpha|beta|rc|pre)(?:[.\d]|$)', v))
+        self.assertFalse(is_pre('0.3.0-compat'))
+        self.assertTrue(is_pre('0.4.0-beta.1'))
+        self.assertTrue(is_pre('0.4.0-rc2'))
+
     def test_source_links_rewritten_for_release_body(self):
         text = '[limits](../../COMPATIBILITY.md)\n[web](https://example.com)'
         rendered = cloud_release.render_notes(text, self.version, 'a' * 40)

@@ -227,7 +227,8 @@ def draft():
         raise project.ProjectError('cannot establish absence of existing Release; refusing mutation')
     args = ['gh', 'release', 'create', selected_tag(), '--repo', REPOSITORY, '--verify-tag', '--draft',
             '--title', 'ACE7pro 风扇助手 ' + version['app_version'], '--notes-file', folder / 'RELEASE_NOTES.md']
-    if '-' in version['app_version']:
+    # A descriptive suffix such as -compat is not a pre-release; only explicit pre-release stems are.
+    if re.search(r'(?i)(?:^|[-.])(?:alpha|beta|rc|pre)(?:[.\d]|$)', version['app_version']):
         args.append('--prerelease')
     args += [folder / name for name in (apk.name, 'BUILD_INFO.json', 'SHA256SUMS.txt', 'RELEASE_NOTES.md')]
     project.run(args)
