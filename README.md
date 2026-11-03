@@ -16,7 +16,7 @@ python3 tools/project.py verify       # 再做完整 Android 源码编译，不�
 
 完整发布流程、签名约束、提交钩子和远端/CI边界见 [工作流程](knowledge/WORKFLOW.md)。
 
-源码已备份至私有 [bianwuya/ace7pro-fan](https://github.com/bianwuya/ace7pro-fan)，备份范围与恢复见 [远端备份](knowledge/REMOTE_BACKUP.md)。签名私钥/口令、构建依赖、APK与私有OEM样本不在此源码备份中。
+源码已公开至 [bianwuya/ace7pro-fan](https://github.com/bianwuya/ace7pro-fan)，备份范围与恢复见 [远端备份](knowledge/REMOTE_BACKUP.md)。签名私钥/口令、构建依赖、APK与私有OEM样本不在此源码备份中。
 
 ## 0.5.2：紧凑使用与生效提示
 

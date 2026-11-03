@@ -11,8 +11,8 @@
 | PM-001 | P1 | 已完成 | 补齐轻量项目管理文档。验收：本索引、架构、流程、状态、任务、变更记录齐全；相对链接有效；兼容矩阵只由 `COMPATIBILITY.md` 维护。已建立对应文档并通过自动链接/语法检查。 |
 | PM-002 | P1 | 已完成 | 实现 `tools/project.py` 管理命令。验收：`status`、`doctor`、`check`（含 `--staged`）、`test`、`verify`、`release --output DIR`、`install-hooks` 按 [工作流程](knowledge/WORKFLOW.md) 的契约实现；`check --staged` 为轻量检查，`test` 不运行 Android 系统命令，`verify` 离线检查+测试+编译但不安装，`release` 仅产出并审计本地包、不自动安装/push/tag；安装 hook 不覆盖既有 hook，且有实际自测证据。已通过24项管理自测、真实Git钩子阻断试验、verify及干净提交上的release端到端验证；详情见 [状态记录](knowledge/STATE.md)。 |
 | PM-003 | P1 | 已完成 | 已补充根 [AGENTS.md](AGENTS.md)。验收：只写必要入口与核心边界，链接本索引；不把尚未实际安装/验证的 hook 或脚本写成强制机制。 |
-| PM-004 | P2 | 已完成 | 用户授权后已在其 `bianwuya` 账号建立私有 [ace7pro-fan](https://github.com/bianwuya/ace7pro-fan)，完整历史已推送；远端重新克隆和Git对象/提交/完整性验证通过，首轮CI通过。只备份已纳管源码，不包含密钥/样本/构建环境；恢复与后续同步见 [远端备份](knowledge/REMOTE_BACKUP.md)。无自动定时push或公开发布。 |
-| PM-005 | P2 | 待办 | 对外授权许可。未替用户选择 License；如需公开源码，先确认许可与第三方材料分发边界。 |
+| PM-004 | P2 | 已完成 | 用户授权后已建立 [ace7pro-fan](https://github.com/bianwuya/ace7pro-fan)，完整历史已推送；远端重新克隆和Git对象/提交/完整性验证通过，首轮CI通过。只备份已纳管源码，不包含密钥/样本/构建环境；恢复与后续同步见 [远端备份](knowledge/REMOTE_BACKUP.md)。2026-11-04 用户明确要求后已转公开并核实匿名访问；无自动定时push或正式Release发布。 |
+| PM-005 | P2 | 待办 | 对外授权许可。仓库已按用户要求公开，尚未指定 License；未替用户选择授权许可，公开访问不等于授予任意使用/再分发权限。 |
 | PM-006 | P1 | 已完成 | GitHub自动构建及版本说明门禁。main/PR/manual无密钥检查包，tag原签名草稿；说明必须有新增/修复/验证与限制。42项管理及发布自测通过；真实[云端构建41635143748](https://github.com/bianwuya/ace7pro-fan/actions/runs/41635143748)成功，产物已下载并审计SHA/源码/说明/包结构；签名job正确SKIPPED，不计作签名链通过。 |
 | PM-007 | P1 | 已完成 | 原签名云端托管与签名Draft端到端。已获用户单独同意并上传到私有repo的`release-signing`加密环境，策略仅允许`v*` tag。受控tag[41638235843](https://github.com/bianwuya/ace7pro-fan/actions/runs/41638235843)同签名Draft成功，下载后固定证书/v3/哈希/源提交/说明复核通过；Draft由用户审核，未Publish。 |
 

@@ -6,7 +6,7 @@
 
 已有 [源码检查工作流](../.github/workflows/check.yml) 保持轻量检查/测试。新增 [APK与草稿工作流](../.github/workflows/build.yml) 及脚本已落地，并在本地通过发布说明、版本标签与权限边界自测，以及无密钥打包/审计。首轮 [GitHub实际构建41635143748](https://github.com/bianwuya/ace7pro-fan/actions/runs/41635143748) 已通过，源码提交为 `144a291`；下载的unsigned产物已复核SHA256、构建记录、说明结构和APK审计。签名job因非版本tag正确SKIPPED，不能算同签名Draft已验证；状态以 [STATE.md](STATE.md) 为准。
 
-上游仓库应继续保持私有：`bianwuya/ace7pro-fan` 的 GitHub Release 和附件继承仓库访问权限，不会因创建 Draft 而公开给仓库外人员下载。本文不授权改变仓库可见性。
+2026-11-04 用户明确要求后，`bianwuya/ace7pro-fan` 已改为公开并验证匿名访问。普通源码/Actions 可公开读取；Draft 仍为草稿，不会因此自动 Publish。签名 Secrets 属于独立的加密配置，不随源码公开而成为可读取文件；仍只允许 `v*` tag 签名，PR 不获 Secrets。后续再次改变可见性仍需明确授权。
 
 ## 已实际跑通的原签名 Draft（2026-11-03）
 
@@ -37,7 +37,7 @@
 
 ## 签名 Secret 与临时文件
 
-签名 job 通过 GitHub Actions 的 `release-signing` environment 引用 `ACEFAN_KEYSTORE_B64` 与 `ACEFAN_STORE_PASSWORD`。**这两个 Secret 已按用户明确授权存入私有仓库的 `release-signing` 加密环境，仅允许 `v*` tag 使用；没有上传到普通仓库或公开位置。** 缺少 Secret 时，tag 签名流程必须失败关闭，不得切换其他密钥、生成替代证书、用 debug key 签名或绕过指纹校验。
+签名 job 通过 GitHub Actions 的 `release-signing` environment 引用 `ACEFAN_KEYSTORE_B64` 与 `ACEFAN_STORE_PASSWORD`。**这两个 Secret 已按用户明确授权存入本仓库的 `release-signing` 加密环境，仅允许 `v*` tag 使用；没有上传到普通仓库或公开位置。** 缺少 Secret 时，tag 签名流程必须失败关闭，不得切换其他密钥、生成替代证书、用 debug key 签名或绕过指纹校验。
 
 当前已获用户单独同意：已创建 `release-signing` 环境，按账号套餐支持情况限制为版本tag并设置审批（个人私有仓库并非都支持人工审批保护），再在已认证的本地终端通过 stdin 设置环境 Secret；首次配置使用 stdin 上传（不再重复执行；绝不张贴材料）：
 
@@ -63,7 +63,7 @@ git tag -a v0.3.1 -m "ACE7pro 风扇助手 0.3.1"
 git push origin v0.3.1
 ```
 
-Actions 校验通过并完成固定身份签名后只创建 Draft。人工核对 tag/提交、APK 包名与版本、签名指纹、哈希、NOTES 及验证边界；确认无误后再由有权限的人手动 Publish。不要把 Draft 当正式发布，也不要将私有仓库改为公开来解决下载问题。
+Actions 校验通过并完成固定身份签名后只创建 Draft。人工核对 tag/提交、APK 包名与版本、签名指纹、哈希、NOTES 及验证边界；确认无误后再由有权限的人手动 Publish。不要把 Draft 当正式发布；本次公开源码不包含发布 Draft 或改变签名配置的授权。
 
 ## 验证边界
 
