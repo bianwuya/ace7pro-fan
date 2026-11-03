@@ -1,4 +1,4 @@
-# ACE7pro 风扇助手 0.3.5-report
+# ACE7pro 风扇助手 0.4.0-semantic
 
 OnePlus ACE7pro 的 LSPosed / 传统 Xposed 模块与本地观测 App。作用域仅 `com.oplus.exsystemservice`。无网络权限，不直接写风扇/温控 sysfs，不伪装温度，不关闭原厂保护。
 

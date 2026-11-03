@@ -28,7 +28,22 @@ public final class CodeProfileTool {
         for(Map.Entry<String,String> e:roles.entrySet())out.put(e.getKey(),raw.get(e.getValue()));
         return out;
     }
+    /** Same role keys and aliases as the runtime resolver, for semantic evidence checks. */
+    /** Mirrors the runtime alias table, so profile strings and evidence strings match exactly. */
+    static Map<String,MethodEvidence> evidence(String path)throws Exception {
+        Map<String,String> roles=roles(), aliases=new HashMap<String,String>();
+        aliases.put("Li9/h;","@orchestrator;");aliases.put("Li9/d;","@base;");aliases.put("Li9/b;","@selector;");
+        aliases.put("Lcom/oplus/exsystemservice/fan/controller/OplusFanController;","@controller;");
+        for(Map.Entry<String,String> e:roles.entrySet())aliases.put(e.getValue(),"@"+e.getKey());
+        aliases.put("Li9/d;->f(Ljava/lang/String;)V","@recalculate");
+        aliases.put("Li9/d;->b()V","@apply");
+        aliases.put("Li9/b;->i()Z","@selectorEnabled");
+        aliases.put("Li9/b;->j()V","@selectorUpdate");
+        aliases.put("Li9/d;->d:Li9/b;","@choice");
+        aliases.put("Li9/b;->g()Lcom/oplus/exsystemservice/fan/strategies/Strategy;","@getStrategy");
+        return DexFingerprint.readEvidence(path,new HashSet<String>(roles.values()),aliases);
+    }
     public static void main(String[] args)throws Exception {
-        for(Map.Entry<String,String> e:hashes(args[0]).entrySet())System.out.println(e.getKey()+"="+e.getValue());
+        for(Map.Entry<String,String> e : hashes(args[0]).entrySet())System.out.println(e.getKey()+"="+e.getValue());
     }
 }

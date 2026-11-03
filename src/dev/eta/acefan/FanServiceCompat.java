@@ -124,17 +124,17 @@ public final class FanServiceCompat {
         concrete.getDeclaredConstructor(context,handler);
         attempting("候选档位方法");
         Method candidate=uniqueMethod(concrete,int.class,Modifier.PRIVATE,"q");
-        step("候选方法匹配：" + candidate.getName() + "()I");
+        step("候选方法匹配：" + candidate.getName() + "()I（按 private ()I 唯一确定，名字不作要求）");
         // Do not guess the downstream protection or controller status methods among same-type getters.
         attempting("后续保护与降噪方法");
-        Method compute=exact(concrete,"c",void.class,Modifier.PROTECTED);
-        Method noise=exact(concrete,"s",int.class,Modifier.PRIVATE,int.class);
-        Method recalc=exact(base,"f",void.class,Modifier.PUBLIC,String.class);
-        Method apply=exact(base,"b",void.class,Modifier.PUBLIC);
+        Method compute=shape(concrete,void.class,Modifier.PROTECTED,"c");
+        Method noise=shape(concrete,int.class,Modifier.PRIVATE,"s",int.class);
+        Method recalc=shape(base,void.class,Modifier.PUBLIC,"f",String.class);
+        Method apply=shape(base,void.class,Modifier.PUBLIC,"b");
         attempting("控制器与档位上限方法");
         Method set;
         try {
-            set=uniqueMethod(ctrl,void.class,Modifier.PUBLIC,"i",int.class);
+            set=shape(ctrl,void.class,Modifier.PUBLIC,"i",int.class);
         } catch (NoSuchMethodException e) {
             step("控制器 set 候选（public void(int)）：" + candidates(ctrl, void.class, int.class));
             throw e;
@@ -142,7 +142,7 @@ public final class FanServiceCompat {
         Method health=healthMethod(ctrl);
         Method maximum;
         try {
-            maximum=uniqueMethod(config,int.class,Modifier.PUBLIC,"d");
+            maximum=shape(config,int.class,Modifier.PUBLIC,"d");
         } catch (NoSuchMethodException e) {
             step("档位上限候选（public int()）：" + candidates(config, int.class));
             throw e;
@@ -151,7 +151,7 @@ public final class FanServiceCompat {
         Field updated=field(ctrl,"mCurrentSpeedLevelUpdated",boolean.class);
         Field event=field(ctrl,"mLastUEvent",int.class);
         attempting("策略枚举");
-        Method strategyName=uniqueMethod(strategy,String.class,Modifier.PUBLIC,"b");
+        Method strategyName=shape(strategy,String.class,Modifier.PUBLIC,"b");
         if (!strategy.isEnum()) throw new NoSuchFieldException("Strategy is not an enum");
         java.util.HashSet<String> names=new java.util.HashSet<String>();
         for(Object s:strategy.getEnumConstants()) names.add(String.valueOf(strategyName.invoke(s)));
@@ -177,8 +177,8 @@ public final class FanServiceCompat {
         step("选择器：" + choice.getDeclaringClass().getName() + "." + choice.getName() + " : " + choice.getType().getName());
         Class<?> selector=choice.getType();
         attempting("选择器使能与更新方法");
-        Method enabled=exact(selector,"i",boolean.class,0);
-        Method select=exact(selector,"j",void.class,0);
+        Method enabled=shape(selector,boolean.class,0,"i");
+        Method select=shape(selector,void.class,0,"j");
         Map<String,Method> proof=new LinkedHashMap<String,Method>();
         proof.put("candidate",candidate); proof.put("downstream",compute); proof.put("noise",noise);
         proof.put("recalculate",recalc); proof.put("apply",apply); proof.put("selectorEnabled",enabled);
@@ -193,20 +193,65 @@ public final class FanServiceCompat {
                 singleton(ctrl),singleton(config),proof,aliases);
     }
 
+    /**
+     * Verifies the resolved methods against the reference profile.
+     *
+     * Primary gate: semantic evidence. Each role must still reference the members that give it
+     * its meaning (e.g. controller health must read mLastUEvent). Renamed or added members are
+     * irrelevant; this survives obfuscation changes and ordinary recompiles.
+     *
+     * Auxiliary: the instruction hash is reported but never blocks on its own, because any
+     * recompile changes register allocation and pool order without changing behaviour.
+     */
     public void verifyCode(String apk) throws Exception {
-        attempting("关键保护链代码指纹");
-        Map<String,String> found=fingerprints(apk);
+        attempting("接口语义核对");
+        Map<String,String> roleByKey=new HashMap<String,String>();
+        for(Map.Entry<String,Method> e:evidence.entrySet())roleByKey.put(methodKey(e.getValue()),e.getKey());
+        Map<String,MethodEvidence> got;
+        try {
+            got=DexFingerprint.readEvidence(apk,roleByKey.keySet(),aliases);
+        } catch (java.io.IOException io) {
+            throw new NoSuchMethodException("关键方法体定位失败：" + io.getMessage() + "（接口形状匹配，但保护链代码无法读取）");
+        }
         java.util.List<String> bad=new java.util.ArrayList<String>();
-        for(Map.Entry<String,String> e:ReferenceFanProfile.HASHES.entrySet()) {
-            String got=found.get(e.getKey());
-            if(!e.getValue().equals(got)) bad.add(e.getKey() + (got==null ? "（缺失）" : "（不一致）"));
+        int checkedRoles=0, checkedRefs=0;
+        for(Map.Entry<String,MethodEvidence> e:got.entrySet()) {
+            String role=roleByKey.get(e.getKey());
+            if(role==null) {
+                // Unmapped evidence would silently skip verification; that must never pass.
+                bad.add("未映射的证据条目："+e.getKey());
+                continue;
+            }
+            String[] required=ReferenceFanProfile.EVIDENCE.get(role);
+            if(required==null) { bad.add("证据档案缺少角色："+role); continue; }
+            checkedRoles++;
+            // Both sides are canonicalised through the same alias table by DexFingerprint.
+            String body=e.getValue().fields + ", " + e.getValue().calls;
+            for(String want:required) {
+                checkedRefs++;
+                if(!body.contains(want)) bad.add(role+" 缺少引用："+want);
+            }
         }
-        if(found.size()!=ReferenceFanProfile.HASHES.size()) bad.add("档案条目数 " + found.size());
+        // A profile that verifies nothing is not a verified profile.
+        if(checkedRoles != ReferenceFanProfile.EVIDENCE.size())
+            bad.add("核对角色数 "+checkedRoles+" 与档案 "+ReferenceFanProfile.EVIDENCE.size()+" 不符");
+        if(checkedRefs == 0) bad.add("没有任何可比对的语义引用");
         if(!bad.isEmpty()) {
-            step("指纹不通过的成员：" + bad);
-            throw new NoSuchMethodException("关键保护链代码变化："+bad.get(0)+"；需要新固件样本适配");
+            step("语义核对不通过的项：" + bad);
+            throw new NoSuchMethodException("保护链语义变化："+bad.get(0)+"；保留原厂");
         }
-        step("11 处关键方法指纹全部通过");
+        step("11 处关键方法的语义引用全部吻合（核对角色 "+checkedRoles+"，引用 "+checkedRefs+" 条）");
+        // Instruction hashes: informational only. Equal means identical bytes; different means
+        // "recompiled or patched", which is expected across firmware and must not block alone.
+        try {
+            Map<String,String> hashed=fingerprints(apk);
+            int same=0;
+            for(Map.Entry<String,String> e:ReferenceFanProfile.HASHES.entrySet())
+                if(e.getValue().equals(hashed.get(e.getKey()))) same++;
+            step("字节级比对（仅参考）：" + same + "/" + ReferenceFanProfile.HASHES.size() + " 与参考固件完全相同");
+        } catch (Throwable ignored) {
+            step("字节级比对跳过（不影响语义核对结论）");
+        }
     }
 
     Map<String,String> fingerprints(String apk) throws Exception {
@@ -258,6 +303,35 @@ public final class FanServiceCompat {
             found.setAccessible(true);
             return found;
         }
+    }
+
+    /**
+     * Resolves a role by its *shape* (return type, access modifiers, parameter types) rather than
+     * by its obfuscated name. R8 picks new single-letter names per build, so requiring "s" or "q"
+     * rejects firmware whose bytecode is semantically identical.
+     *
+     * Uniqueness is still mandatory: if two methods share the shape the role is ambiguous and this
+     * fails, because picking either would be a guess. The preferred name is used only to explain
+     * the outcome, never to select silently.
+     */
+    static Method shape(Class<?> type, Class<?> returns, int required, String preferred, Class<?>... args) throws Exception {
+        Method found=null;
+        for(Method m:type.getDeclaredMethods()) {
+            int flags=m.getModifiers();
+            if(Modifier.isStatic(flags)||m.isSynthetic()||(flags&required)!=required
+                    ||m.getReturnType()!=returns||!Arrays.equals(m.getParameterTypes(),args))continue;
+            if(found!=null)
+                throw new NoSuchMethodException("ambiguous "+type.getName()+" "+returns.getName()
+                        +Arrays.toString(args)+"（"+found.getName()+" / "+m.getName()+"；该固件需人工确认）");
+            found=m;
+        }
+        if(found==null) {
+            step(type.getSimpleName()+" 缺少形状 "+returns.getSimpleName()+Arrays.toString(args)
+                    +"（原候选 "+preferred+"）；现有同形候选：无");
+            throw new NoSuchMethodException("missing shape "+type.getName()+" "+Arrays.toString(args));
+        }
+        if(!preferred.equals(found.getName())) step(type.getSimpleName()+"."+preferred+" 已改名为 "+found.getName()+"（形状唯一，继续）");
+        found.setAccessible(true); return found;
     }
 
     /** Signature-only fallback is allowed only where unique; code evidence is still mandatory. */

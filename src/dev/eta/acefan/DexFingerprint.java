@@ -62,6 +62,60 @@ public final class DexFingerprint {
         methodCount = table(88, 8); methodOffset = u32(92);
     }
 
+    /**
+     * Semantic evidence for the same methods, collected in a second bounded pass over the DEX.
+     * Kept separate from instruction hashing so a recompile can change one without the other.
+     */
+    public static Map<String, MethodEvidence> readEvidence(String path, Set<String> wanted,
+                                                           Map<String, String> aliases) throws Exception {
+        Map<String, MethodEvidence> result = new HashMap<String, MethodEvidence>();
+        int total = 0;
+        try (ZipFile zip = new ZipFile(path)) {
+            for (int i = 1; i <= 16; i++) {
+                ZipEntry entry = zip.getEntry(i == 1 ? "classes.dex" : "classes" + i + ".dex");
+                if (entry == null) continue;
+                ByteArrayOutputStream bytes = new ByteArrayOutputStream();
+                try (InputStream in = zip.getInputStream(entry)) {
+                    byte[] buf = new byte[16384]; int n;
+                    while ((n = in.read(buf)) != -1) {
+                        total += n;
+                        if (bytes.size() + n > MAX_DEX || total > MAX_TOTAL) throw new IOException("DEX budget exceeded");
+                        bytes.write(buf, 0, n);
+                    }
+                }
+                new DexFingerprint(bytes.toByteArray(), aliases).collectEvidence(wanted, result);
+            }
+        }
+        if (!result.keySet().containsAll(wanted)) {
+            Set<String> missing = new HashSet<String>(wanted); missing.removeAll(result.keySet());
+            throw new IOException("DEX methods missing: " + missing);
+        }
+        return result;
+    }
+
+    private void collectEvidence(Set<String> wanted, Map<String, MethodEvidence> result) throws Exception {
+        int count = table(96, 32), offset = u32(100);
+        for (int i = 0; i < count; i++) {
+            int cd = u32(offset + i * 32 + 24);
+            if (cd == 0) continue;
+            int[] at = {cd};
+            int sf = uleb(at), inf = uleb(at), dm = uleb(at), vm = uleb(at);
+            if ((long) sf + inf + dm + vm > 200000) throw new IOException("class data budget");
+            for (int n = 0; n < sf + inf; n++) { uleb(at); uleb(at); }
+            evidenceMethods(at, dm, wanted, result); evidenceMethods(at, vm, wanted, result);
+        }
+    }
+
+    private void evidenceMethods(int[] at, int count, Set<String> wanted, Map<String, MethodEvidence> result) throws Exception {
+        int index = 0;
+        for (int i = 0; i < count; i++) {
+            index = Math.addExact(index, uleb(at)); uleb(at); int code = uleb(at);
+            String key = method(index);
+            if (!wanted.contains(key) || code == 0) continue;
+            result.put(key, evidenceOf(code));
+        }
+    }
+
     public static Map<String, String> readApk(String path, Set<String> wanted,
                                              Map<String, String> aliases) throws Exception {
         Map<String, String> result = new HashMap<String, String>();
@@ -111,6 +165,51 @@ public final class DexFingerprint {
             if (code == 0 || result.containsKey(key)) throw new IOException("missing/duplicate method body: " + key);
             result.put(key, fingerprint(code));
         }
+    }
+
+    /**
+     * Semantic evidence: the members this method references and the strings it loads.
+     * Independent of instruction encoding, so it survives recompilation and register changes.
+     */
+    MethodEvidence evidenceOf(int code) throws Exception {
+        bounds(code, 16);
+        int units = u32(code + 12), start = code + 16;
+        if (units > 100000) throw new IOException("method budget");
+        bounds(start, (long) units * 2);
+        java.util.TreeSet<String> fields = new java.util.TreeSet<String>();
+        java.util.TreeSet<String> calls = new java.util.TreeSet<String>();
+        java.util.TreeSet<String> strings = new java.util.TreeSet<String>();
+        for (int pc = 0; pc < units;) {
+            int first = u16(start + 2 * pc), op = first & 255;
+            int width = width(op);
+            if (op == 0 && first != 0) {
+                if (first == 0x0100) width = 4 + 2 * u16(start + 2 * (pc + 1));
+                else if (first == 0x0200) width = 2 + 4 * u16(start + 2 * (pc + 1));
+                else if (first == 0x0300) {
+                    long size = (long) u16(start + 2 * (pc + 1)) * (u32(start + 2 * (pc + 2)) & 0xffffffffL);
+                    if (size > 200000) throw new IOException("payload budget");
+                    width = 4 + (int) ((size + 1) / 2);
+                } else width = 1;
+                pc += width; continue;
+            }
+            if (pc + width > units) throw new IOException("instruction bounds");
+            if (op == 0x1a) strings.add(normalize("string:" + string(u16(start + 2 * (pc + 1)))));
+            else if (op == 0x1b) strings.add(normalize("string:" + string(u32(start + 2 * (pc + 1)))));
+            else if (op >= 0x52 && op <= 0x6d) fields.add(normalize("field:" + field(u16(start + 2 * (pc + 1)))));
+            else if ((op >= 0x6e && op <= 0x72) || (op >= 0x74 && op <= 0x78))
+                calls.add(normalize("method:" + method(u16(start + 2 * (pc + 1)))));
+            pc += width;
+        }
+        return new MethodEvidence(join(fields), join(calls), join(strings));
+    }
+
+    private static String join(java.util.TreeSet<String> values) {
+        StringBuilder b = new StringBuilder();
+        for (String v : values) {
+            if (b.length() > 0) b.append(", ");
+            b.append(v);
+        }
+        return b.toString();
     }
 
     private String fingerprint(int code) throws Exception {

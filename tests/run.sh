@@ -7,6 +7,7 @@ javac --release 8 -Xlint:-options -encoding UTF-8 -d build/test-classes \
     src/dev/eta/acefan/Sampling.java src/dev/eta/acefan/CompatibilityCatalog.java \
     src/dev/eta/acefan/ReportFreshness.java src/dev/eta/acefan/DexFingerprint.java \
     src/dev/eta/acefan/FanServiceCompat.java src/dev/eta/acefan/ReferenceFanProfile.java \
+    src/dev/eta/acefan/DexFingerprint.java src/dev/eta/acefan/MethodEvidence.java \
     src/dev/eta/acefan/DiagnosticReport.java tests/*.java
 for name in ChargeCurveTest WakeHandoffTest SamplingTest CompatibilityTest DiagnosticReportTest; do
     java -cp build/test-classes "dev.eta.acefan.$name"
