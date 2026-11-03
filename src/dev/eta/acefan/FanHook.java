@@ -14,6 +14,7 @@ import android.os.Handler;
 import android.os.HandlerThread;
 import android.os.PowerManager;
 import android.os.SystemClock;
+import android.os.UserManager;
 import android.provider.Settings;
 import org.json.JSONObject;
 import java.lang.reflect.Method;
@@ -176,9 +177,10 @@ public final class FanHook implements IXposedHookLoadPackage {
                     try{
                         int old=original;lastOem=old;
                         evidence.success(stage,member,"原厂返回="+old,SystemClock.elapsedRealtime());
-                        Gate gate=evaluateGate();if(!gate.allowed()){observeOriginal(old,gate.reason);return;}
                         stage="自动模式实读";Boolean automatic=null;
-                        try{automatic=found.readAutomatic();}catch(Throwable t){failure(stage,"FanMode",t);}
+                        try{automatic=found.readAutomatic();if(automatic!=null)evidence.success(stage,found.automaticDescription(),"auto="+automatic,SystemClock.elapsedRealtime());}
+                        catch(Throwable t){failure(stage,found.automaticDescription(),t);}
+                        Gate gate=evaluateGate();if(!gate.allowed()){observeOriginal(old,gate.reason);return;}
                         if(Boolean.FALSE.equals(automatic)){cancelContinuation();observeOriginal(old,"原厂接口确认手动模式，保留用户设定");return;}
                         stage="场景读取";String name=found.readStrategy();
                         evidence.success(stage,String.valueOf(found.choice),name,SystemClock.elapsedRealtime());
@@ -246,9 +248,9 @@ public final class FanHook implements IXposedHookLoadPackage {
         catch(Throwable t){failure("档位上限读取","ConfigParser",t);}
         try{evidence.success("场景接口实读",String.valueOf(found.choice),found.readStrategy(),SystemClock.elapsedRealtime());}
         catch(Throwable t){failure("场景读取",String.valueOf(found.choice),t);}
-        try{Boolean auto=found.readAutomatic();if(auto==null)evidence.unavailable("自动模式实读","入口缺失，沿用实际设置与原厂场景");else evidence.success("自动模式实读","FanMode","auto="+auto,SystemClock.elapsedRealtime());}
+        try{Boolean auto=found.readAutomatic();if(auto==null)evidence.unavailable("自动模式实读","入口缺失，沿用实际设置与原厂场景");else evidence.success("自动模式实读",found.automaticDescription(),"auto="+auto,SystemClock.elapsedRealtime());}
         catch(Throwable t){failure("自动模式实读","FanMode",t);}
-        if(found.updated==null)evidence.unavailable("控制确认","确认字段缺失，候选仍可运行；不启用未经确认的锁屏衔接");
+        if(found.updated==null||found.currentLevel==null)evidence.unavailable("控制确认",found.confirmationDescription());
         if(found.setters.isEmpty())evidence.unavailable("控制观察","无控制请求入口，候选仍可运行；后续反馈未知");
     }
     private static void setupFailure(Throwable t){
@@ -273,7 +275,7 @@ public final class FanHook implements IXposedHookLoadPackage {
         HandlerThread thread=new HandlerThread("ACEFan-Telemetry");thread.start();worker=new Handler(thread.getLooper());
         IntentFilter f=new IntentFilter();
         f.addAction(Intent.ACTION_BATTERY_CHANGED);f.addAction(Intent.ACTION_SCREEN_ON);f.addAction(Intent.ACTION_SCREEN_OFF);
-        f.addAction(Intent.ACTION_USER_PRESENT);f.addAction(Intent.ACTION_POWER_CONNECTED);f.addAction(Intent.ACTION_POWER_DISCONNECTED);
+        f.addAction(Intent.ACTION_USER_PRESENT);f.addAction(Intent.ACTION_USER_UNLOCKED);f.addAction(Intent.ACTION_POWER_CONNECTED);f.addAction(Intent.ACTION_POWER_DISCONNECTED);
         BroadcastReceiver receiver=new BroadcastReceiver(){@Override public void onReceive(Context c,Intent i){
             if(i==null)return;
             String action=i.getAction();
@@ -287,7 +289,7 @@ public final class FanHook implements IXposedHookLoadPackage {
             }else if(Intent.ACTION_POWER_CONNECTED.equals(action)){
                 powerDisconnected=false;
             }
-            if(Intent.ACTION_SCREEN_ON.equals(action)||Intent.ACTION_SCREEN_OFF.equals(action)||Intent.ACTION_USER_PRESENT.equals(action)){
+            if(Intent.ACTION_SCREEN_ON.equals(action)||Intent.ACTION_SCREEN_OFF.equals(action)||Intent.ACTION_USER_PRESENT.equals(action)||Intent.ACTION_USER_UNLOCKED.equals(action)){
                 // SCREEN_ON is not an unlock: retain fresh telemetry and let the live keyguard gate decide.
                 XposedBridge.log("ACEFan "+VERSION+": event="+action+" elapsed="+SystemClock.elapsedRealtime());
                 requestRefresh();
@@ -325,7 +327,7 @@ public final class FanHook implements IXposedHookLoadPackage {
             JSONObject s=Telemetry.sample(context);
             Bundle cfg=api("config",null);
             if(cfg!=null){enabled=cfg.getBoolean("enabled",false);configVersion=cfg.getLong("version");lastConfigAt=SystemClock.elapsedRealtime();}
-            else{evidence.unavailable("配置读取","Provider 未返回配置");if(SystemClock.elapsedRealtime()-lastConfigAt>Sampling.staleMs(sampleIntervalMs))enabled=false;}
+            else if(SystemClock.elapsedRealtime()-lastConfigAt>Sampling.staleMs(sampleIntervalMs))enabled=false;
             sampleAt=SystemClock.elapsedRealtime();snapshot=s;
             hardReason=workerHardEligibility(s);
             evidence.success("运行条件","供电/温度/开关",hardReason,SystemClock.elapsedRealtime());
@@ -343,12 +345,15 @@ public final class FanHook implements IXposedHookLoadPackage {
             s.put("model",Build.MODEL);s.put("device",Build.DEVICE);s.put("sdk",Build.VERSION.SDK_INT);
             s.put("firmwareProfile",compatible?FanServiceCompat.PROFILE:"none");
             s.put("compatibilityStatus",compatibilityStatus);
-            s.put("compatibilityStage",compatibilityStage);
-            s.put("compatibilityDetail",compatibilityDetail);s.put("targetVersion",targetVersion);
+            s.put("compatibilityStage",compatible?"接口运行":compatibilityStage);
+            s.put("compatibilityDetail",compatible?"当前决策："+decisionReason:compatibilityDetail);s.put("targetVersion",targetVersion);
             s.put("targetPackage",TARGET);s.put("targetSha256",targetSha256);s.put("targetPath",targetPath);
             s.put("knownApk","不参与检测");
             s.put("runtimeEvidence",bounded(evidence.report(),6400));
             s.put("runtimeProgress",evidence.progress());
+            s.put("currentFailures",evidence.activeFailures());
+            s.put("lastFailureResolved",evidence.lastFailureResolved());
+            s.put("controlConfirmation",bindings==null?"尚未解析":bindings.confirmationDescription());
             s.put("runtimeCounters",evidence.counters());
             s.put("lastFailureStage",evidence.lastStage());
             s.put("lastFailureDetail",bounded(evidence.lastError(),400));
@@ -363,11 +368,20 @@ public final class FanHook implements IXposedHookLoadPackage {
             s.put("phase",phase);s.put("handoffRemainingMs",remaining);s.put("active",active);s.put("reason",decisionReason);
             s.put("oem",lastOem<0?JSONObject.NULL:lastOem);s.put("candidate",lastCandidate<0?JSONObject.NULL:lastCandidate);s.put("request",lastRequest<0?JSONObject.NULL:lastRequest);s.put("curve",chargeCurve.level());
             double[] temps={s.optDouble("battery",Double.NaN),s.optDouble("board",Double.NaN),s.optDouble("fan",Double.NaN),s.optDouble("mos",Double.NaN)};
-            String key=evidence.counters()+"|"+evidence.lastStage()+"|"+evidence.lastError()+"|"+trigger+"|"+active+"|"+decisionReason+"|"+s.optString("fanStatus","")+"|"+s.optInt("effective",-1)+"|"+s.optInt("driver",-1)+"|"+s.optBoolean("interactive",false);
+            String key=evidence.activeFailures()+"|"+evidence.lastFailureResolved()+"|"+evidence.counters()+"|"+evidence.lastStage()+"|"+evidence.lastError()+"|"+trigger+"|"+active+"|"+decisionReason+"|"+s.optString("fanStatus","")+"|"+s.optInt("effective",-1)+"|"+s.optInt("driver",-1)+"|"+s.optBoolean("interactive",false);
             long nowElapsed=SystemClock.elapsedRealtime();
             if(Sampling.shouldPush(!pushedOnce,!key.equals(lastPushKey),nowElapsed-lastPushAt,Sampling.maxDelta(temps,lastPushTemps))){
-                Bundle b=new Bundle();b.putString("json",s.toString());
-                if(api("push",b)!=null){pushedOnce=true;lastPushAt=nowElapsed;lastPushKey=key;lastPushTemps=temps;}else failure("报告回传","Provider.push",new IllegalStateException("未取得写入回执"));
+                long gap=nowElapsed-lastPushAt;
+                if(pushedOnce&&gap<1000L)next=Math.min(next,Math.max(100L,1000L-gap));
+                else{
+                    Bundle b=new Bundle();b.putString("json",s.toString());
+                    if(api("push",b)!=null){
+                        pushedOnce=true;lastPushAt=nowElapsed;lastPushKey=key;lastPushTemps=temps;
+                        // The acknowledged payload was built before this success; publish recovery once.
+                        if(!s.optString("currentFailures","").equals(evidence.activeFailures())
+                                ||s.optBoolean("lastFailureResolved",false)!=evidence.lastFailureResolved())next=Math.min(next,1000L);
+                    }
+                }
             }
         }catch(Throwable t){failure("遥测采样","Telemetry/config/push",t);active=false;cancelContinuation();next=Sampling.IDLE_MS;sampleIntervalMs=next;}
         finally{if(worker!=null){worker.removeCallbacks(this);worker.postDelayed(this,next);}}
@@ -376,6 +390,7 @@ public final class FanHook implements IXposedHookLoadPackage {
     private static String workerHardEligibility(JSONObject s){
         try{
             if(!compatible)return "接口尚未接入，保留原厂："+compatibilityDetail;
+            if(lastConfigAt==0)return "尚未取得配置，等待 Provider 可用";
             if(!enabled)return "功能关闭，保留原厂";
             if(powerDisconnected||eventChargeBlocked||!s.optBoolean("wired",false)||!s.optBoolean("charging",false))return "非有线充电中，保留原厂";
             if(!s.optBoolean("batteryValid",false)||s.isNull("battery"))return "电池温度不可用";
@@ -398,7 +413,8 @@ public final class FanHook implements IXposedHookLoadPackage {
     private static Integer readSetting(String key){
         String raw=Settings.System.getString(context.getContentResolver(),key);
         if(raw==null){evidence.unavailable("设置:"+key,"未提供，沿用原厂实际场景及下游使能判断");return null;}
-        try{return Integer.valueOf(raw);}catch(NumberFormatException e){failure("设置读取",key,e);return null;}
+        try{Integer value=Integer.valueOf(raw);evidence.success("设置:"+key,key,"实际值="+value,SystemClock.elapsedRealtime());return value;}
+        catch(NumberFormatException e){failure("设置:"+key,key,e);return null;}
     }
 
     private static Gate evaluateGate(){
@@ -447,6 +463,29 @@ public final class FanHook implements IXposedHookLoadPackage {
             if(bootstrap!=null){bootstrap.refresh.invoke(aeolus,"ACE7 Charging Policy");evidence.success("原厂重算",FanServiceCompat.methodKey(bootstrap.refresh),"调用完成；增强="+active,SystemClock.elapsedRealtime());}
         }catch(Throwable t){failure("原厂重算",bootstrap==null?"未定位":FanServiceCompat.methodKey(bootstrap.refresh),t);}}});
     }
-    private static Bundle api(String method,Bundle b){long token=Binder.clearCallingIdentity();try{return context.getContentResolver().call(API,method,null,b);}catch(Throwable t){evidence.failure("Provider读取/回传",method,t,SystemClock.elapsedRealtime());return null;}finally{Binder.restoreCallingIdentity(token);}}
+    private static Bundle api(String method,Bundle b){
+        String stage="config".equals(method)?"配置读取":"报告回传";
+        long token=Binder.clearCallingIdentity();
+        try{
+            UserManager users=(UserManager)context.getSystemService(Context.USER_SERVICE);
+            if(users!=null&&!users.isUserUnlocked()){
+                evidence.waiting(stage,"首次解锁尚未完成，等待 App 凭据存储可用；不判接口失败");return null;
+            }
+            Bundle out=context.getContentResolver().call(API,method,null,b);
+            if(out==null)throw new IllegalStateException("Provider."+method+" 返回空回执");
+            if("config".equals(method)&&(!out.containsKey("enabled")||!out.containsKey("version")))
+                throw new IllegalStateException("配置回执缺少 enabled/version");
+            if("push".equals(method)&&!out.getBoolean("ok",false))
+                throw new IllegalStateException("Provider.push 未确认写入");
+            evidence.success(stage,"Provider."+method,"config".equals(method)?"配置版本="+out.getLong("version")+"；enabled="+out.getBoolean("enabled"):"写入回执 ok=true",SystemClock.elapsedRealtime());
+            return out;
+        }catch(Throwable t){
+            // Preserve the original cause; do not overwrite it with a second generic failure.
+            evidence.failure(stage,"Provider."+method,t,SystemClock.elapsedRealtime());
+            String key=stage+"|"+FanServiceCompat.summary(t);
+            if(!key.equals(lastFailureLog)){lastFailureLog=key;XposedBridge.log("ACEFan "+VERSION+" ["+stage+"] "+key);}
+            return null;
+        }finally{Binder.restoreCallingIdentity(token);}
+    }
     private static String bounded(String s,int n){return s.length()>n?s.substring(0,n)+"\n…（已截断）":s;}
 }

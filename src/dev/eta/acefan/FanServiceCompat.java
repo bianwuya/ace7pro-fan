@@ -121,10 +121,19 @@ public final class FanServiceCompat {
             step("控制请求观察："+(setters.isEmpty()?"不可用；候选仍可运行，锁屏衔接等待确认":setters.toString()));
             step("健康事件："+(event==null?"未知，保留原厂故障处理":event.toString()));
             step("确认字段："+(updated==null?"不可用；不虚报确认":updated.toString()));
+            if(ctrl!=null&&(updated==null||level==null)){
+                step("控制器实际字段："+fieldInventory(ctrl));
+                step("控制器实际观察方法："+setters);
+            }
             return new FanServiceCompat(orches,controller,parser,candidates,getters,setters,choice,updated,event,level,max,maximum,names);
         }catch(Exception e){throw staged(e);}
     }
     private static StageFailure staged(Exception e){return e instanceof StageFailure?(StageFailure)e:new StageFailure(current,e);}
+    public String confirmationDescription(){
+        String status="更新字段="+(updated==null?"缺失":updated.toString())+"；当前档位字段="+(currentLevel==null?"缺失":currentLevel.toString());
+        return status+(updated==null||currentLevel==null?"；仅缺少确认能力，候选仍可运行；不建立未经确认的锁屏衔接；实际字段="+(controller==null?"实例未知":fieldInventory(controller.getClass())):"");
+    }
+    public String automaticDescription(){return automatic==null?"FanMode 读取入口未知":methodKey(automatic);}
     public Boolean readAutomatic()throws Exception{return mode!=null&&automatic!=null?(Boolean)automatic.invoke(mode):null;}
     public int readMaximum()throws Exception{
         if(parser==null)throw new NoSuchFieldException("ConfigParser 实例不可用");

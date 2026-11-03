@@ -1,4 +1,4 @@
-# ACE 7 系列风扇助手 0.5.0-runtime
+# ACE 7 系列风扇助手 0.5.1-runtime
 
 OnePlus ACE 7 系列的 LSPosed / 传统 Xposed 模块与本地观测 App。作用域仅 `com.oplus.exsystemservice`。无网络权限，不直接写风扇/温控 sysfs，不伪装温度，不关闭原厂保护。
 
@@ -17,6 +17,12 @@ python3 tools/project.py verify       # 再做完整 Android 源码编译，不�
 完整发布流程、签名约束、提交钩子和远端/CI边界见 [工作流程](knowledge/WORKFLOW.md)。
 
 源码已备份至私有 [bianwuya/ace7pro-fan](https://github.com/bianwuya/ace7pro-fan)，备份范围与恢复见 [远端备份](knowledge/REMOTE_BACKUP.md)。签名私钥/口令、构建依赖、APK与私有OEM样本不在此源码备份中。
+
+## 0.5.1：配置与报告通道恢复状态
+
+来自 .152 固件的用户截图显示接口已接入、上限/场景/候选/重算已有实际记录；启动早期 Provider 曾报 Unknown authority，后续配置已读到版本 1。此前只记录失败、不记录成功，导致旧错误长期占据顶部。
+
+本版首次解锁前等待配置存储可用，解锁后补采；配置/回传分别记录成功、未恢复异常与已恢复历史。保留原始异常，不再重复附加“未取得写入回执”覆盖原因；补充控制器字段缺失时的实际字段清单。启动时的 auto=false 不再作为永久记录，每次候选调用更新实读。
 
 ## 本版：实读接口、真实运行、逐环节失败报告
 
@@ -63,7 +69,7 @@ python3 tools/project.py verify       # 再做完整 Android 源码编译，不�
 1. 安装 APK；框架必须先支持你的 Android，只有独立 Manager APK 不会激活框架。
 2. 在 LSPosed 启用模块，只勾选 `com.oplus.exsystemservice`。不要勾选系统框架/system_server。
 3. 正常重启。已运行的原厂服务不会因覆盖安装立刻加载新 Hook；App 显示“待重载”时请重启再看。
-4. 检查“版本兼容性”：运行 Hook 为 `0.5.0-runtime` 后，查看实际接口接入、候选应用、控制反馈和失败环节。注入与物理效果分别判断。
+4. 检查“版本兼容性”：运行 Hook 为 `0.5.1-runtime` 后，查看实际接口接入、候选应用、控制反馈和失败环节。注入与物理效果分别判断。
 
 功能验收由用户手动操作；本包不自动重启、杀掉原厂服务、改 LSPosed/安全设置，也不请求 Root 作为工作前提。回退可关闭增强，或在 LSPosed 禁用后重启；不自动卸载/清数据。
 
@@ -77,6 +83,6 @@ sh build.sh              # 原签名本地构建
 sh build.sh --unsigned   # 无密钥检查包，不可安装
 ```
 
-产物：`build/ACE7pro_Fan_0.5.0-runtime.apk`。纯 Java 测试涵盖曲线、锁屏衔接、采样、接口直接调用与部分能力缺失、配置就绪恢复、逐环节证据及报告。默认测试不再运行历史指纹对比。
+产物：`build/ACE7pro_Fan_0.5.1-runtime.apk`。纯 Java 测试涵盖曲线、锁屏衔接、采样、接口直接调用与部分能力缺失、配置就绪恢复、逐环节证据及报告。默认测试不再运行历史指纹对比。
 
 已做离线测试和构建校验，不等于已做其他 ROM/框架或物理风扇效果实测。详细边界见兼容文档。

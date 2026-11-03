@@ -23,6 +23,8 @@ public final class DiagnosticReport {
         public String status = "", stage = "", detail = "", profile = "", trace = "";
         public String runtimeEvidence = "", runtimeProgress = "", runtimeCounters = "";
         public String lastFailureStage = "", lastFailureDetail = "";
+        public String currentFailures = "", lastFailureResolved = "", controlConfirmation = "";
+        public boolean currentFailuresReported;
         public String enabled = "", active = "", phase = "", reason = "";
         public String oem = "", candidate = "", request = "", driver = "", effective = "";
         public String battery = "", board = "", fan = "", mos = "";
@@ -83,6 +85,9 @@ public final class DiagnosticReport {
         b.append("\n[5] 运行证据与历史失败\n");
         b.append("运行进度：").append(reported(in.runtimeProgress)).append('\n');
         b.append("运行计数：").append(reported(in.runtimeCounters)).append('\n');
+        b.append("当前未恢复异常：").append(in.currentFailuresReported
+                ? (raw(in.currentFailures).isEmpty()?"无":raw(in.currentFailures)):"旧版未区分，见逐环节记录").append('\n');
+        b.append("控制确认能力：").append(reported(in.controlConfirmation)).append('\n');
         b.append("逐环节证据（上报原文，上游可能截断）：\n");
         if (raw(in.runtimeEvidence).isEmpty()) {
             b.append("未上报（不代表成功或失败）\n");
@@ -93,6 +98,7 @@ public final class DiagnosticReport {
         }
         b.append("最近失败阶段：").append(reported(in.lastFailureStage)).append('\n');
         b.append("最近失败详情：").append(reported(in.lastFailureDetail)).append('\n');
+        b.append("最近失败是否恢复：").append("true".equals(in.lastFailureResolved)?"已恢复（保留历史）":"false".equals(in.lastFailureResolved)?"尚未确认恢复":"旧版未上报").append('\n');
         b.append("最近失败记录在后续恢复成功后仍保留，是否仍异常需结合最新证据；未上报或未触发不代表失败。\n")
                 .append("控制请求调用完成或原厂状态确认不等于实测物理转速。\n");
 
@@ -149,7 +155,10 @@ public final class DiagnosticReport {
                     .append("并确认框架支持当前 Android 版本且仍兼容传统 Xposed 模块。\n");
             any = true;
         }
-        boolean partialFailure = hasRuntimeFailure(in);
+        boolean partialFailure = in.currentFailuresReported ? !raw(in.currentFailures).isEmpty() : hasRuntimeFailure(in);
+        if (in.currentFailuresReported && raw(in.currentFailures).isEmpty() && !raw(in.lastFailureStage).isEmpty()) {
+            b.append("- 当前没有未恢复异常；历史失败仍保留供排查，不代表现在通信或控制仍失败。\n");any=true;
+        }
         if ("setup-failed".equals(status) || "unsupported".equals(status)
                 || "runtime-error".equals(status) || "partial-error".equals(status) || partialFailure) {
             b.append("- 接口接入或运行环节有失败记录：请通过现有的复制、分享或保存功能导出完整报告，")

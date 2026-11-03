@@ -229,6 +229,22 @@ public final class DiagnosticReportTest {
         has(notInjected, "硬件门槛：未知（未读取）");
         has(DiagnosticReport.build(null), "[适配建议]");
 
+        // Cold-boot transport errors must not remain active after successful acknowledgements.
+        DiagnosticReport.Input transport=injected("ready");
+        transport.currentFailuresReported=true;transport.currentFailures="";
+        transport.lastFailureStage="报告回传";transport.lastFailureDetail="Unknown authority at elapsed=20467ms";
+        transport.lastFailureResolved="true";transport.controlConfirmation="更新字段缺失；候选仍可运行";
+        transport.runtimeEvidence="配置读取：已恢复；失败=6；elapsed=64780ms\n报告回传：已恢复；失败=6；elapsed=64783ms\n";
+        String restored=DiagnosticReport.build(transport);
+        has(restored,"当前未恢复异常：无");has(restored,"最近失败是否恢复：已恢复（保留历史）");
+        has(restored,"控制确认能力：更新字段缺失；候选仍可运行");has(restored,"Unknown authority at elapsed=20467ms");
+        has(DiagnosticReport.advice(transport),"当前没有未恢复异常");
+        lacks(DiagnosticReport.advice(transport),"接口接入或运行环节有失败记录");
+        transport.currentFailures="报告回传";transport.lastFailureResolved="false";
+        has(DiagnosticReport.build(transport),"当前未恢复异常：报告回传");
+        has(DiagnosticReport.build(transport),"最近失败是否恢复：尚未确认恢复");
+        reportFirst(DiagnosticReport.advice(transport));
+
         // Resolution trace snapshots are isolated from mutations by report callers.
         FanServiceCompat.resetTrace();
         ok(FanServiceCompat.lastTrace().isEmpty());

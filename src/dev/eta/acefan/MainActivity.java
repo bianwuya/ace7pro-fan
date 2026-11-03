@@ -608,10 +608,15 @@ public class MainActivity extends Activity {
         String failureDetail = reportField(j, "lastFailureDetail");
         b.append("运行进度：").append(progress.isEmpty() ? "未上报" : progress).append('\n');
         b.append("运行计数：").append(counters.isEmpty() ? "未上报" : counters).append('\n');
+        String currentFailures=reportField(j,"currentFailures");
+        b.append("当前未恢复异常：").append(j.has("currentFailures")?(currentFailures.isEmpty()?"无":currentFailures):"旧版未区分，见逐环节记录").append('\n');
+        String confirmation=reportField(j,"controlConfirmation");
+        if(!confirmation.isEmpty())b.append("控制确认能力：").append(confirmation).append('\n');
         b.append("逐环节证据（上报原文，上游可能截断）：\n").append(evidence.isEmpty() ? "未上报" : evidence);
         if (!evidence.endsWith("\n")) b.append('\n');
         b.append("最近失败阶段：").append(failureStage.isEmpty() ? "未上报 / 未观察到" : failureStage).append('\n');
         b.append("最近失败详情：").append(failureDetail.isEmpty() ? "未上报 / 未观察到" : failureDetail).append('\n');
+        if(j.has("lastFailureResolved")&&!failureStage.isEmpty())b.append("最近失败是否恢复：").append(j.optBoolean("lastFailureResolved")?"已恢复（保留历史）":"尚未确认恢复").append('\n');
         b.append("最近失败记录在恢复后仍保留，是否仍异常需结合最新证据；未上报或未触发不代表失败。\n");
         b.append("Xposed Bridge API：").append(j.isNull("frameworkApi") ? "旧版未回报/未知" : j.optString("frameworkApi", "未知"))
                 .append("（不是 LSPosed 版本号）\n");
@@ -734,6 +739,10 @@ public class MainActivity extends Activity {
         in.runtimeCounters = reportField(j, "runtimeCounters");
         in.lastFailureStage = reportField(j, "lastFailureStage");
         in.lastFailureDetail = reportField(j, "lastFailureDetail");
+        in.currentFailuresReported=j!=null&&j.has("currentFailures");
+        in.currentFailures=reportField(j,"currentFailures");
+        in.lastFailureResolved=reportField(j,"lastFailureResolved");
+        in.controlConfirmation=reportField(j,"controlConfirmation");
         in.knownApk = j == null ? "" : j.optString("knownApk", "");
         // Fall back to what this app can read itself when the hook never reported (not injected).
         in.targetPackage = j == null || j.optString("targetPackage", "").isEmpty()
@@ -1087,9 +1096,9 @@ public class MainActivity extends Activity {
             boolean waiting = "pending".equals(status);
             boolean notReady = "setup-failed".equals(status) || "outside-family".equals(status)
                     || "unsupported".equals(status) || "runtime-error".equals(status);
-            boolean hasFailureRecord = "partial-error".equals(status)
-                    || !reportField(j, "lastFailureStage").isEmpty()
-                    || !reportField(j, "lastFailureDetail").isEmpty();
+            boolean hasFailureRecord = j.has("currentFailures") ? !reportField(j,"currentFailures").isEmpty()
+                    : "partial-error".equals(status) || !reportField(j,"lastFailureStage").isEmpty()
+                    || !reportField(j,"lastFailureDetail").isEmpty();
             setStatus(stale ? "待重载" : notReady || hasFailureRecord ? "已注入·查看诊断"
                             : waiting ? "已注入·待接入" : "已注入",
                     stale || notReady ? ui.warn : hasFailureRecord ? ui.accent : waiting ? ui.muted : ui.good);

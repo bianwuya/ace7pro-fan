@@ -6,7 +6,7 @@ import java.util.Map;
 /** Per-stage evidence, independent of Android; errors never disable other capabilities. */
 public final class RuntimeEvidence {
     private static final class Entry {
-        long calls,failures,at,lastFailureAt;String failureDetail="";String state="未触发",member="",detail="";
+        boolean unresolved;long calls,failures,at,lastFailureAt;String failureDetail="";String state="未触发",member="",detail="";
     }
     private final Map<String,Entry> stages=new LinkedHashMap<String,Entry>();
     private String lastStage="",lastError="";
@@ -14,14 +14,26 @@ public final class RuntimeEvidence {
     private String progress="等待接口解析";
     private Entry entry(String stage){Entry e=stages.get(stage);if(e==null){e=new Entry();stages.put(stage,e);}return e;}
     public synchronized void success(String stage,String member,String detail,long at){
-        Entry e=entry(stage);e.calls++;e.state="成功";e.member=trim(member,180);e.detail=trim(detail,200);e.at=at;revision++;
+        Entry e=entry(stage);e.calls++;e.unresolved=false;e.state=e.failures>0?"已恢复":"成功";e.member=trim(member,180);e.detail=trim(detail,200);e.at=at;revision++;
     }
     public synchronized void failure(String stage,String member,Throwable error,long at){
-        Entry e=entry(stage);e.calls++;e.failures++;e.state="失败";e.member=trim(member,180);e.detail=FanServiceCompat.summary(error);e.at=at;
+        Entry e=entry(stage);e.calls++;e.failures++;e.unresolved=true;e.state="失败";e.member=trim(member,180);e.detail=FanServiceCompat.summary(error);e.at=at;
         lastStage=stage;lastError=e.member+" | "+e.detail;e.lastFailureAt=at;e.failureDetail=lastError;revision++;
     }
     public synchronized void unavailable(String stage,String detail){
         Entry e=entry(stage);e.state="不可用";e.detail=trim(detail,200);revision++;
+    }
+    public synchronized void waiting(String stage,String detail){
+        Entry e=entry(stage);e.state="等待";e.detail=trim(detail,200);revision++;
+    }
+    public synchronized String activeFailures(){
+        StringBuilder b=new StringBuilder();
+        for(Map.Entry<String,Entry> p:stages.entrySet())if(p.getValue().unresolved){
+            if(b.length()>0)b.append(" / ");b.append(p.getKey());
+        }return b.toString();
+    }
+    public synchronized boolean lastFailureResolved(){
+        Entry e=stages.get(lastStage);return e!=null&&e.failures>0&&!e.unresolved;
     }
     public synchronized void ready(){progress="接口已安装，等待真实场景";revision++;}
     public synchronized void attempted(long id,int old,int chosen,long at){
