@@ -2,6 +2,20 @@
 
 OnePlus ACE7pro 的 LSPosed / 传统 Xposed 模块与本地观测 App。作用域仅 `com.oplus.exsystemservice`。无网络权限，不直接写风扇/温控 sysfs，不伪装温度，不关闭原厂保护。
 
+## 项目维护入口
+
+维护规则见 [AGENTS.md](AGENTS.md)，知识入口见 [knowledge/INDEX.md](knowledge/INDEX.md)。
+进度用 [TASKS.md](TASKS.md)，历史用 [CHANGELOG.md](CHANGELOG.md)，验证与设备证据见 [状态快照](knowledge/STATE.md)。
+
+```sh
+python3 tools/project.py status       # 源码版本、分支、工作树；不读设备
+python3 tools/project.py check        # 轻量规则、语法、文档链接与敏感材料检查
+python3 tools/project.py test         # 管理工具与纯 Java 回归
+python3 tools/project.py verify       # 再做完整 Android 源码编译，不安装
+```
+
+完整发布流程、签名约束、提交钩子和远端/CI边界见 [工作流程](knowledge/WORKFLOW.md)。
+
 ## 本版：系统与 LSPosed 版本兼容
 
 - 去掉 Android 17 / SDK 37 唯一入口和原厂服务整包哈希硬封锁。仍校验 ACE7pro PMS110 / OP64F1L1 硬件，完整解析原厂 V3 风扇接口并检查 11 处关键代码指纹；同架构代码一致的不同固件可通过，不匹配则仅观测。

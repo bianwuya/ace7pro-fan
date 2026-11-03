@@ -1,0 +1,30 @@
+{
+  "schema_version": 1,
+  "project_id": "ace7pro-fan",
+  "package_name": "dev.eta.acefan",
+  "artifact_prefix": "ACE7pro_Fan_",
+  "min_sdk": 28,
+  "target_sdk": 35,
+  "xposed_min_api": 82,
+  "xposed_entry": "dev.eta.acefan.FanHook",
+  "xposed_scope": ["com.oplus.exsystemservice"],
+  "allowed_permissions": [],
+  "signer_certificate_sha256": "e3977f9ff13304e9a48106cd8b2c3e68abe8ea50cbba5ad90b118500265898d9",
+  "required_files": [
+    "AGENTS.md",
+    "README.md",
+    "COMPATIBILITY.md",
+    "CHANGELOG.md",
+    "TASKS.md",
+    "knowledge/INDEX.md",
+    "knowledge/ARCHITECTURE.md",
+    "knowledge/WORKFLOW.md",
+    "knowledge/STATE.md",
+    "project.json",
+    "tools/project.py",
+    "tools/test_project.py",
+    ".githooks/pre-commit",
+    "tests/run.sh",
+    "build.sh"
+  ]
+}

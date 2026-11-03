@@ -4,6 +4,11 @@ cd "$(dirname "$0")"
 B="$PWD/build-tools"
 V=$(sed -n 's/.*APP_VERSION = "\([^"]*\)".*/\1/p' src/dev/eta/acefan/BuildInfo.java)
 test -n "$V"
+if [ ! -f "$B/keys/pilot.jks" ] || [ ! -f "$B/keys/pass.txt" ]; then
+    echo "Existing signing identity is required; refusing to generate replacement keys." >&2
+    exit 1
+fi
+python3 tools/project.py check
 # These are disposable compiler outputs only; retain old signed APKs and signing keys.
 rm -rf build/classes build/dex
 mkdir -p build/classes build/dex "$B/keys"
@@ -26,18 +31,11 @@ with ZipFile(p/'unsigned.apk') as z:
     assert not any('xposed-api' in n for n in z.namelist())
 PY
 zipalign -f 4 build/unsigned.apk build/aligned.apk
-if [ ! -f "$B/keys/pilot.jks" ]; then
-    python3 - <<'PY'
-from pathlib import Path
-import secrets,os
-p=Path('build-tools/keys/pass.txt');secret=secrets.token_urlsafe(32);p.write_text(secret+'\n'+secret+'\n');os.chmod(p,0o600)
-PY
-    keytool -genkeypair -keystore "$B/keys/pilot.jks" -storetype JKS -alias acefan -keyalg RSA -keysize 3072 -validity 3650 -dname 'CN=ACE7pro Fan Local Pilot' -storepass:file "$B/keys/pass.txt" -keypass:file "$B/keys/pass.txt" >/dev/null 2>&1
-    chmod 600 "$B/keys/pilot.jks"
-fi
-java -cp "$B/apksigner-extracted/usr/share/java/apksigner-35.0.2.jar" com.android.apksigner.ApkSignerTool sign --ks "$B/keys/pilot.jks" --ks-key-alias acefan --ks-pass "pass:$(head -n 1 "$B/keys/pass.txt")" --key-pass "pass:$(head -n 1 "$B/keys/pass.txt")" --out build/ACE7pro_Fan_$V.apk build/aligned.apk
+java -cp "$B/apksigner-extracted/usr/share/java/apksigner-35.0.2.jar" com.android.apksigner.ApkSignerTool sign --ks "$B/keys/pilot.jks" --ks-key-alias acefan --ks-pass "file:$B/keys/pass.txt" --key-pass "file:$B/keys/pass.txt" --out build/ACE7pro_Fan_$V.apk build/aligned.apk
 java -cp "$B/apksigner-extracted/usr/share/java/apksigner-35.0.2.jar" com.android.apksigner.ApkSignerTool verify --verbose build/ACE7pro_Fan_$V.apk
 zipalign -c 4 build/ACE7pro_Fan_$V.apk
 aapt dump badging "build/ACE7pro_Fan_$V.apk" | grep -q "versionName='$V'" || { echo "versionName does not match BuildInfo: $V" >&2; exit 1; }
 aapt dump badging "build/ACE7pro_Fan_$V.apk" | head -8
 sha256sum build/ACE7pro_Fan_$V.apk
+
+python3 tools/project.py audit-apk "build/ACE7pro_Fan_$V.apk"

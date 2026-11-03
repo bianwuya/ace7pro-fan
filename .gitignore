@@ -1,4 +1,25 @@
 build/
+dist/
+private/
+local/
+__pycache__/
+*.pyc
+.env
+.env.*
+*.db
+*.db-wal
+*.db-shm
+*.sqlite
+*.sqlite3
+*.log
+*.p12
+*.pfx
+*.pem
+*.key
+*.aab
+*.zip
+*.tar.gz
+*.tgz
 # Local rollback archives can contain private source snapshots; never publish them.
 releases/*-before-*/
 build-tools/

@@ -1,0 +1,25 @@
+name: Source and offline tests
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  offline:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+      - name: Source and project gates
+        run: python3 tools/project.py check
+      - name: Management and pure Java tests (no signing keys or OEM samples)
+        run: python3 tools/project.py test
+# This template becomes active only after an authorized push to GitHub.
+# It does not build/sign/install APKs; absent private OEM fixtures are explicitly SKIPPED.
