@@ -1,4 +1,4 @@
-# ACE 7 系列风扇助手 0.5.1-runtime
+# ACE 7 系列风扇助手 0.5.2-guide
 
 OnePlus ACE 7 系列的 LSPosed / 传统 Xposed 模块与本地观测 App。作用域仅 `com.oplus.exsystemservice`。无网络权限，不直接写风扇/温控 sysfs，不伪装温度，不关闭原厂保护。
 
@@ -17,6 +17,10 @@ python3 tools/project.py verify       # 再做完整 Android 源码编译，不�
 完整发布流程、签名约束、提交钩子和远端/CI边界见 [工作流程](knowledge/WORKFLOW.md)。
 
 源码已备份至私有 [bianwuya/ace7pro-fan](https://github.com/bianwuya/ace7pro-fan)，备份范围与恢复见 [远端备份](knowledge/REMOTE_BACKUP.md)。签名私钥/口令、构建依赖、APK与私有OEM样本不在此源码备份中。
+
+## 0.5.2：紧凑使用与生效提示
+
+概览开关旁提供“原厂开关与生效说明”短入口；设置页复用原有说明行，点开同主题底部面板。提醒开启原厂风扇/充电风扇、选择自动模式及自动调速，说明仅有线充电+息屏增强，以及绿色阶段、控制反馈、查看历史与解锁交还的含义。未引入 UI 库，未改控制策略；运行 Hook 保持 `0.5.1-runtime`，这次 UI 更新不需要为 Hook 重载而重启。
 
 ## 0.5.1：配置与报告通道恢复状态
 
@@ -83,6 +87,6 @@ sh build.sh              # 原签名本地构建
 sh build.sh --unsigned   # 无密钥检查包，不可安装
 ```
 
-产物：`build/ACE7pro_Fan_0.5.1-runtime.apk`。纯 Java 测试涵盖曲线、锁屏衔接、采样、接口直接调用与部分能力缺失、配置就绪恢复、逐环节证据及报告。默认测试不再运行历史指纹对比。
+产物：`build/ACE7pro_Fan_0.5.2-guide.apk`。纯 Java 测试涵盖曲线、锁屏衔接、采样、接口直接调用与部分能力缺失、配置就绪恢复、逐环节证据及报告。默认测试不再运行历史指纹对比。
 
 已做离线测试和构建校验，不等于已做其他 ROM/框架或物理风扇效果实测。详细边界见兼容文档。

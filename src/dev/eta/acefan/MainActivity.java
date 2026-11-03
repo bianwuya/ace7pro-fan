@@ -279,7 +279,7 @@ public class MainActivity extends Activity {
         switchRow.setGravity(Gravity.CENTER_VERTICAL);
         LinearLayout switchTexts = ui.column();
         switchTexts.addView(ui.text("息屏充电增强", 15, ui.text, true));
-        switchTexts.addView(ui.text("仅息屏有线充电时增强，唤醒锁屏延续", 12, ui.muted, false),
+        switchTexts.addView(ui.text("需原厂自动模式 · 有线充电且息屏", 12, ui.muted, false),
                 ui.params(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT, 0, 4, 0, 0));
         switchRow.addView(switchTexts, new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f));
         ovSwitch = new RoundSwitch(this, ui);
@@ -289,6 +289,14 @@ public class MainActivity extends Activity {
         switchRow.addView(ovSwitch, ui.params(ViewGroup.LayoutParams.WRAP_CONTENT,
                 ViewGroup.LayoutParams.WRAP_CONTENT, 10, 0, 0, 0));
         hero.addView(switchRow);
+        TextView usage = ui.text("原厂开关与生效说明  ›", 12, ui.accent, false);
+        usage.setGravity(Gravity.CENTER_VERTICAL);
+        usage.setMinHeight(ui.dp(40));
+        usage.setContentDescription("查看原厂开关要求、适用模式与生效状态说明");
+        ui.ripple(usage, 12, Color.TRANSPARENT);
+        usage.setOnClickListener(v -> showUsageInfo());
+        hero.addView(usage, ui.params(ViewGroup.LayoutParams.MATCH_PARENT,
+                ViewGroup.LayoutParams.WRAP_CONTENT, 0, 6, 0, -6));
         addCard(col, hero);
 
         LinearLayout metrics = ui.row();
@@ -433,7 +441,7 @@ public class MainActivity extends Activity {
         switchRow.setPadding(ui.dp(18), ui.dp(14), ui.dp(18), ui.dp(14));
         LinearLayout switchTexts = ui.column();
         switchTexts.addView(ui.text("息屏充电增强", 15, ui.text, false));
-        switchTexts.addView(ui.text("有线充电且息屏时按温度曲线增强", 12, ui.muted, false),
+        switchTexts.addView(ui.text("先开启原厂风扇与充电开关，使用自动模式", 12, ui.muted, false),
                 ui.params(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT, 0, 4, 0, 0));
         switchRow.addView(switchTexts, new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f));
         setSwitch = new RoundSwitch(this, ui);
@@ -446,10 +454,9 @@ public class MainActivity extends Activity {
 
         control.addView(ui.divider(), ui.params(ViewGroup.LayoutParams.MATCH_PARENT, 1, 18, 0, 18, 0));
 
-        LinearLayout wake = settingRow("唤醒锁屏衔接", "真正解锁后 2 秒交还原厂", false,
-                ui.text("已启用", 13, ui.good, false));
-        wake.setOnClickListener(v -> showWakeInfo());
-        control.addView(wake);
+        LinearLayout usage = settingRow("使用与生效说明", "原厂开关 · 适用模式 · 如何确认生效", false, null);
+        usage.setOnClickListener(v -> showUsageInfo());
+        control.addView(usage);
 
         control.addView(ui.divider(), ui.params(ViewGroup.LayoutParams.MATCH_PARENT, 1, 18, 0, 18, 0));
 
@@ -508,7 +515,7 @@ public class MainActivity extends Activity {
         col.addView(appVersionLine, ui.params(ViewGroup.LayoutParams.MATCH_PARENT,
                 ViewGroup.LayoutParams.WRAP_CONTENT, 4, 16, 4, 0));
 
-        TextView policy = ui.text("仅在息屏有线充电且原厂自动模式时增强；点亮但仍在锁屏可延续，真正解锁后交还原厂。"
+        TextView policy = ui.text("仅息屏有线充电、原厂自动模式时增强；已确认会话可锁屏延续，解锁后 2 秒内交还。"
                         + "口袋、通话、手柄、故障等原厂保护仍然优先。",
                 11, ui.muted, false);
         policy.setLineSpacing(ui.dp(4), 1f);
@@ -654,12 +661,18 @@ public class MainActivity extends Activity {
         });
     }
 
-    void showWakeInfo() {
-        Sheet.info(this, ui, "唤醒锁屏衔接",
-                "只有先前在息屏充电中真正生效的增强会话，才允许在点亮但仍停留在锁屏时延续。\n\n"
-                        + "真正解锁后最多 2 秒短暂衔接，然后交还原厂完整重算。\n\n"
-                        + "拔线、停止充电、手动模式、数据失效、故障以及原厂噪声/手柄保护仍会立刻取消增强。"
-                        + "没有先前的息屏会话时，仅点亮锁屏不会新起增强。");
+    void showUsageInfo() {
+        Sheet.info(this, ui, "使用与生效说明",
+                "先检查手机原厂设置\n"
+                        + "在系统的风扇／散热设置中开启风扇总开关和充电时启用风扇，选择自动模式，并保持自动调速开启。不同系统版本的名称可能略有不同；本页只提醒，不代改原厂设置。\n\n"
+                        + "适用模式\n"
+                        + "仅在有线充电中、息屏、原厂自动模式下按温度增加需求；温度曲线从 33°C 起增加需求，降温有迟滞。手动模式、无线充电、未充电或亮屏已解锁时不新启增强。\n\n"
+                        + "怎样看生效\n"
+                        + "概览出现绿色状态点和“息屏增强”，表示模块已应用增强候选；仅打开开关或显示“已注入”不等于正在增强。实际风扇仍由原厂决定，驱动有效档位可受原厂限档，不能当作实测转速。\n\n"
+                        + "点亮后怎样看\n"
+                        + "已有息屏增强且原厂反馈已确认时，点亮仍锁屏会延续；真正解锁后最多 2 秒交还。打开 App 时通常已恢复“保留原厂”，不代表刚才没生效。可到趋势页查看刚才的模块需求与驱动有效档位，或查看设备兼容报告中的候选应用与控制反馈计数。\n\n"
+                        + "没有增强时\n"
+                        + "先看“当前阶段”下的原因；温度低于起点、原厂档位已足够或原厂保护限档都可能无需额外增风。确认字段缺失时仍可尝试息屏增强，但不会建立未经确认的锁屏衔接。");
     }
 
     void showCurve() {

@@ -122,3 +122,10 @@
 - 官方 Card：https://compose-miuix-ui.github.io/miuix/components/card
 - 官方 Scaffold：https://compose-miuix-ui.github.io/miuix/components/scaffold
 - 官方 NavigationBar：https://compose-miuix-ui.github.io/miuix/components/navigationbar
+
+## 0.5.2-guide 使用提示
+
+- 复用现有 Java `Ui.text` / `Ui.ripple` / `settingRow` / `Sheet.info`，深浅色取现有令牌，无新库。
+- 概览增强开关下仅增加一行12sp“原厂开关与生效说明”，最小40dp点击区域；开关副标题简述自动/有线/息屏。
+- 设置用“使用与生效说明”替代旧“唤醒锁屏衔接”行，不增加分组，不再写死绿色“已启用”。详情按需展开，包含原厂开关、适用模式、生效表现、查看历史和未触发原因。
+- 明确绿色“息屏增强”是候选应用，非物理转速；解锁进入 App 通常已交还，需查看刚才趋势或报告计数。UI提示不改变控制逻辑。
