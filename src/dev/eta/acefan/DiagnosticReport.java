@@ -72,7 +72,7 @@ public final class DiagnosticReport {
 
         b.append("\n[4] 接口适配\n");
         b.append("结论：").append(CompatibilityCatalog.statusLabel(in.status)).append('\n');
-        b.append("失败阶段：").append(show(in.stage)).append('\n');
+        b.append("失败阶段：").append(stageText(in.status, in.stage)).append('\n');
         b.append("失败原因：").append(show(in.detail)).append('\n');
         b.append("匹配档案：").append(show(in.profile)).append('\n');
         if (!raw(in.trace).isEmpty()) b.append("解析轨迹：\n").append(raw(in.trace)).append('\n');
@@ -169,6 +169,16 @@ public final class DiagnosticReport {
     private static String hardwareText(String gate) {
         String g = raw(gate);
         return g.isEmpty() ? "未知（未读取）" : g;
+    }
+
+    /** A passed interface has no failing stage; saying "未知" there reads like an unfinished check. */
+    private static String stageText(String status, String stage) {
+        String s = raw(stage);
+        if (!s.isEmpty()) return s;
+        String st = raw(status);
+        if ("known-firmware".equals(st) || "interface-matched".equals(st)) return "不适用（接口已通过）";
+        if (st.isEmpty()) return UNKNOWN;
+        return UNKNOWN;
     }
 
     private static String hookStateText(String state) {

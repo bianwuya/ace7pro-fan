@@ -72,6 +72,7 @@ public final class DiagnosticReportTest {
         matched.knownApk = "一致";
         String m = DiagnosticReport.build(matched);
         has(m, "接口匹配 · 待实测");
+        has(m, "失败阶段：不适用（接口已通过）");
         has(m, "与已知参考固件一致");
         has(m, "还没在这台设备上做过实机验收");
         lacks(m, "需要按它的硬件与原厂风扇接口单独适配");
