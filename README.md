@@ -16,6 +16,8 @@ python3 tools/project.py verify       # 再做完整 Android 源码编译，不�
 
 完整发布流程、签名约束、提交钩子和远端/CI边界见 [工作流程](knowledge/WORKFLOW.md)。
 
+源码已备份至私有 [bianwuya/ace7pro-fan](https://github.com/bianwuya/ace7pro-fan)，备份范围与恢复见 [远端备份](knowledge/REMOTE_BACKUP.md)。签名私钥/口令、构建依赖、APK与私有OEM样本不在此源码备份中。
+
 ## 本版：系统与 LSPosed 版本兼容
 
 - 去掉 Android 17 / SDK 37 唯一入口和原厂服务整包哈希硬封锁。仍校验 ACE7pro PMS110 / OP64F1L1 硬件，完整解析原厂 V3 风扇接口并检查 11 处关键代码指纹；同架构代码一致的不同固件可通过，不匹配则仅观测。

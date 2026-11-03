@@ -51,7 +51,7 @@ python3 tools/project.py release --output dist/0.3.0-compat-local-check
 
 本地发布包包含 `BUILD_INFO.json`（提交、版本、SHA256、公开签名身份、OEM fixture 是否存在、离线验证边界）和 `SHA256SUMS.txt`。物理验收仍是独立步骤，不能因生成了此包而把兼容结论升级。重复运行请换新目录，不覆盖已交付包。
 
-`.github/workflows/check.yml` 与问题/PR模板已纳管，但当前没有远端，**GitHub CI 未执行**；以后经授权推送后才生效。它只跑无私有依赖的检查和测试，不持有签名材料。许可证/远端目的地未经确认不代选。
+用户已授权通过账号备份；当前远端是私有 [bianwuya/ace7pro-fan](https://github.com/bianwuya/ace7pro-fan)，`main` 跟踪 `origin/main`。首次 GitHub CI 已实际通过（精确提交/运行链接见 [状态快照](STATE.md)）。它只跑无私有依赖的检查和测试，不持有签名材料，缺少OEM样本的测试明确SKIPPED；不冒称完整构建或设备验收。备份、恢复、范围和后续同步见 [REMOTE_BACKUP.md](REMOTE_BACKUP.md)。没有配置自动push或定时任务；许可证仍未代选。
 
 命令实现状态、验收证据及剩余管理任务见 [TASKS.md](../TASKS.md)。
 
