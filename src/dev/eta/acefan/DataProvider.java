@@ -126,7 +126,9 @@ public final class DataProvider extends ContentProvider {
             try {
                 d.insertOrThrow("sample", null, v);
                 d.delete("sample", "wall < ?", new String[]{Long.toString(System.currentTimeMillis() - RETENTION_MS)});
-                d.execSQL("DELETE FROM sample WHERE id NOT IN (SELECT id FROM sample ORDER BY wall DESC,id DESC LIMIT ?)", new Object[]{MAX_SAMPLES});
+                // Primary-key trim: id is a monotonic rowid, so this drops exactly the oldest rows
+                // without the full-table NOT IN scan the previous statement performed every push.
+                d.execSQL("DELETE FROM sample WHERE id <= (SELECT MAX(id) FROM sample) - ?", new Object[]{MAX_SAMPLES});
                 d.setTransactionSuccessful();
             } finally { d.endTransaction(); }
             getContext().getContentResolver().notifyChange(CONTENT_URI, null);

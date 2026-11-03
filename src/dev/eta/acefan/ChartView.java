@@ -21,6 +21,12 @@ import java.util.Locale;
  * drawn here; there is deliberately no RPM series anywhere in this UI.
  */
 public class ChartView extends View {
+    /**
+     * A break in the line means the sampler really stopped. The idle tier stores one sample per
+     * 30 s, so the threshold has to sit above that cadence instead of the old 5 s one.
+     */
+    public static final long GAP_MS = 60000L;
+
     public static final class Sample {
         public final long wall, elapsed;
         public final String boot;
@@ -122,7 +128,7 @@ public class ChartView extends View {
             }
             float x = plot.left + (float) ((s.wall - start) / (double) Math.max(1L, end - start)) * plot.width();
             float y = yFor(v, plot, min, max);
-            boolean gap = prev != null && (s.wall - prev.wall > 30000L || s.wall < prev.wall || !s.boot.equals(prev.boot));
+            boolean gap = prev != null && (s.wall - prev.wall > GAP_MS || s.wall < prev.wall || !s.boot.equals(prev.boot));
             if (!pen || gap) {
                 path.moveTo(x, y);
                 pen = true;

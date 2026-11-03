@@ -2,6 +2,10 @@
 set -eu
 cd "$(dirname "$0")"
 B="$PWD/build-tools"
+V=$(sed -n 's/.*APP_VERSION = "\([^"]*\)".*/\1/p' src/dev/eta/acefan/BuildInfo.java)
+test -n "$V"
+# These are disposable compiler outputs only; retain old signed APKs and signing keys.
+rm -rf build/classes build/dex
 mkdir -p build/classes build/dex "$B/keys"
 chmod 700 "$B/keys"
 find src -name '*.java' -print > build/sources.txt
@@ -31,8 +35,9 @@ PY
     keytool -genkeypair -keystore "$B/keys/pilot.jks" -storetype JKS -alias acefan -keyalg RSA -keysize 3072 -validity 3650 -dname 'CN=ACE7pro Fan Local Pilot' -storepass:file "$B/keys/pass.txt" -keypass:file "$B/keys/pass.txt" >/dev/null 2>&1
     chmod 600 "$B/keys/pilot.jks"
 fi
-java -cp "$B/apksigner-extracted/usr/share/java/apksigner-35.0.2.jar" com.android.apksigner.ApkSignerTool sign --ks "$B/keys/pilot.jks" --ks-key-alias acefan --ks-pass "pass:$(head -n 1 "$B/keys/pass.txt")" --key-pass "pass:$(head -n 1 "$B/keys/pass.txt")" --out build/ACE7pro_Fan_0.2.0-miuix.apk build/aligned.apk
-java -cp "$B/apksigner-extracted/usr/share/java/apksigner-35.0.2.jar" com.android.apksigner.ApkSignerTool verify --verbose build/ACE7pro_Fan_0.2.0-miuix.apk
-zipalign -c 4 build/ACE7pro_Fan_0.2.0-miuix.apk
-aapt dump badging build/ACE7pro_Fan_0.2.0-miuix.apk | head -8
-sha256sum build/ACE7pro_Fan_0.2.0-miuix.apk
+java -cp "$B/apksigner-extracted/usr/share/java/apksigner-35.0.2.jar" com.android.apksigner.ApkSignerTool sign --ks "$B/keys/pilot.jks" --ks-key-alias acefan --ks-pass "pass:$(head -n 1 "$B/keys/pass.txt")" --key-pass "pass:$(head -n 1 "$B/keys/pass.txt")" --out build/ACE7pro_Fan_$V.apk build/aligned.apk
+java -cp "$B/apksigner-extracted/usr/share/java/apksigner-35.0.2.jar" com.android.apksigner.ApkSignerTool verify --verbose build/ACE7pro_Fan_$V.apk
+zipalign -c 4 build/ACE7pro_Fan_$V.apk
+aapt dump badging "build/ACE7pro_Fan_$V.apk" | grep -q "versionName='$V'" || { echo "versionName does not match BuildInfo: $V" >&2; exit 1; }
+aapt dump badging "build/ACE7pro_Fan_$V.apk" | head -8
+sha256sum build/ACE7pro_Fan_$V.apk

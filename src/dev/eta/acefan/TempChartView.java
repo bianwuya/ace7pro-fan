@@ -114,7 +114,7 @@ public final class TempChartView extends ChartView {
             }
             float x = plot.left + (float) ((s.wall - start) / (double) Math.max(1L, end - start)) * plot.width();
             float y = yFor(v, plot, min, max);
-            boolean gap = prev != null && (s.wall - prev.wall > 30000L || !s.boot.equals(prev.boot));
+            boolean gap = prev != null && (s.wall - prev.wall > ChartView.GAP_MS || !s.boot.equals(prev.boot));
             if (!pen || gap) {
                 if (pen) {
                     fill.lineTo(prevX, plot.bottom);

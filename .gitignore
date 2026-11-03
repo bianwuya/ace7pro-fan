@@ -1,4 +1,6 @@
 build/
+# Local rollback archives can contain private source snapshots; never publish them.
+releases/*-before-*/
 build-tools/
 *.class
 *.dex

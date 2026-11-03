@@ -68,7 +68,10 @@ public class MainActivity extends Activity {
 
     // 设置
     RoundSwitch setSwitch;
-    TextView themeValue, appVersionLine;
+    TextView themeValue, appVersionLine, compatibilityValue;
+    volatile JSONObject runtimeRecord;
+    String currentBootId;
+
 
     boolean alive, configReady, syncing;
     long lastLocalPush, configVersion;
@@ -79,6 +82,10 @@ public class MainActivity extends Activity {
     protected void onCreate(Bundle state) {
         super.onCreate(state);
         ui = new Ui(this);
+        try (java.io.BufferedReader r = new java.io.BufferedReader(new java.io.FileReader("/proc/sys/kernel/random/boot_id"))) {
+            char[] b = new char[64]; int n = r.read(b); if (n > 0) currentBootId = new String(b, 0, n).trim();
+        } catch (Exception ignored) { }
+
         getWindow().setBackgroundDrawable(new ColorDrawable(ui.bg));
         buildUi();
         applySystemBars();
@@ -467,7 +474,13 @@ public class MainActivity extends Activity {
 
         data.addView(ui.divider(), ui.params(ViewGroup.LayoutParams.MATCH_PARENT, 1, 18, 0, 18, 0));
 
-        LinearLayout diag = settingRow("模块诊断", "查看 App 与运行中的 Hook 版本", false,
+        compatibilityValue = ui.text("待诊断", 12, ui.muted, false);
+        LinearLayout compat = settingRow("版本兼容性", "查看系统版本与 LSPosed 支持范围", false, compatibilityValue);
+        compat.setOnClickListener(v -> showCompatibility());
+        data.addView(compat);
+        data.addView(ui.divider(), ui.params(ViewGroup.LayoutParams.MATCH_PARENT, 1, 18, 0, 18, 0));
+
+        LinearLayout diag = settingRow("模块诊断", "查看运行框架、Hook 与固件接口", false,
                 ui.text("查看", 13, ui.muted, false));
         diag.setOnClickListener(v -> showDiagnostics());
         data.addView(diag);
@@ -521,22 +534,80 @@ public class MainActivity extends Activity {
     // ---------------------------------------------------------------- actions
 
     void moreMenu() {
-        String[] items = {"刷新数据", "打开 LSPosed", "模块诊断"};
+        String[] items = {"刷新数据", "打开 LSPosed", "模块诊断", "版本兼容性"};
         Sheet.choices(this, ui, "更多", items, -1, index -> {
             if (index == 0) load(true);
             else if (index == 1) openLsposed();
-            else showDiagnostics();
+            else if (index == 2) showDiagnostics();
+            else showCompatibility();
         });
     }
 
     void openLsposed() {
-        Intent i = getPackageManager().getLaunchIntentForPackage("org.lsposed.manager");
-        if (i == null) {
-            Toast.makeText(this, "未找到 LSPosed Manager", Toast.LENGTH_LONG).show();
+        if (FrameworkCompat.openIndependent(this)) {
+            Toast.makeText(this, "仅启用目标包 com.oplus.exsystemservice；模块更新后需正常重启", Toast.LENGTH_LONG).show();
             return;
         }
-        Toast.makeText(this, "仅勾选 com.oplus.exsystemservice 并正常重启后生效；不会自动重启", Toast.LENGTH_LONG).show();
-        startActivity(i);
+        Sheet.choices(this, ui, "无法直接打开独立管理器", new String[]{
+                "尝试寄生管理器入口（需框架已激活）", "查看手动进入与激活说明"}, -1, index -> {
+            if (index == 0) {
+                boolean requested = FrameworkCompat.openParasitic(this);
+                Toast.makeText(this, requested ? "已请求寄生入口；若未进入，请从 LSPosed 通知或快捷方式打开"
+                        : "系统未允许此入口；请从 LSPosed 通知或快捷方式打开", Toast.LENGTH_LONG).show();
+            } else {
+                Sheet.info(this, ui, "管理器与框架是两回事",
+                        "没有可启动的独立 Manager，不代表没有安装或激活 LSPosed。寄生、隐藏或改包名版本请从其通知、桌面快捷方式或 Root 管理器的模块操作入口进入。\n\n"
+                        + "启用本模块，只勾选 com.oplus.exsystemservice，然后正常重启。仅安装 Manager APK 不会使框架生效。\n\n"
+                        + "框架版本首先要支持你的 Android；请在“版本兼容性”查看参考范围。");
+            }
+        });
+    }
+
+    void showCompatibility() {
+        JSONObject j = runtimeRecord;
+        StringBuilder b = new StringBuilder("当前设备\n").append(FrameworkCompat.systemLine(this)).append("\n\n");
+        appendCompatibility(b, j);
+        b.append("\n").append(FrameworkCompat.managers(this)).append("\n\n").append(CompatibilityCatalog.describe());
+        Sheet.info(this, ui, "系统与 LSPosed 版本兼容性", b.toString());
+    }
+
+    void appendCompatibility(StringBuilder b, JSONObject j) {
+        if (j == null) {
+            b.append("运行状态：暂无目标服务的注入回报；无法仅凭 Manager 判断是否激活。\n");
+            return;
+        }
+        b.append(runtimeFresh(j) ? "本次有效回报\n" : "历史回报（已过期，不能证明当前激活）\n");
+        b.append("Hook：").append(j.optString("hookVersion", "未知/旧版")).append('\n');
+        if (!BuildInfo.HOOK_VERSION.equals(j.optString("hookVersion", "")))
+            b.append("新兼容层尚未加载，请正常重启后重新诊断。\n");
+        b.append("固件适配：").append(CompatibilityCatalog.statusLabel(j.optString("compatibilityStatus", ""))).append('\n');
+        if (j.has("compatibilityDetail")) b.append(j.optString("compatibilityDetail")).append('\n');
+        if (j.has("targetVersion")) b.append("原厂服务：").append(j.optString("targetVersion")).append('\n');
+        if (j.has("firmwareProfile")) b.append("匹配档案：").append(j.optString("firmwareProfile")).append('\n');
+        b.append("Xposed Bridge API：").append(j.isNull("frameworkApi") ? "旧版未回报/未知" : j.optString("frameworkApi", "未知"))
+                .append("（不是 LSPosed 版本号）\n");
+        String version = j.isNull("frameworkVersion") ? "" : j.optString("frameworkVersion", "");
+        b.append("运行框架版本：").append(version.isEmpty() ? "框架未公开，不使用 Manager 版本冒充" : version).append('\n');
+        if (!version.isEmpty()) b.append("来源：").append(j.optString("frameworkVersionSource", "注入框架")).append('\n');
+        b.append("注入成功、接口匹配与实际增强效果是三个独立结论。\n");
+    }
+
+    boolean runtimeFresh(JSONObject j) {
+        return j != null && ReportFreshness.fresh(j.optLong("wall", 0), j.optLong("elapsed", -1),
+                System.currentTimeMillis(), android.os.SystemClock.elapsedRealtime(), j.optString("boot", ""),
+                currentBootId, Sampling.staleMs(Sampling.IDLE_MS));
+    }
+
+    ChartView.Sample latestForRender(List<ChartView.Sample> list) {
+        ChartView.Sample last = list.isEmpty() ? null : list.get(list.size() - 1);
+        for (int i = list.size() - 1; i >= 0; i--) {
+            ChartView.Sample sample = list.get(i);
+            if (!"已注入".equals(sample.raw.optString("hook", ""))) continue;
+            runtimeRecord = sample.raw;
+            if (runtimeFresh(sample.raw)) return sample;
+            break;
+        }
+        return last;
     }
 
     void pickTheme() {
@@ -565,9 +636,10 @@ public class MainActivity extends Activity {
 
     void showDiagnostics() {
         ChartView.Sample last = samples.isEmpty() ? null : samples.get(samples.size() - 1);
-        JSONObject j = last == null ? null : last.raw;
+        JSONObject j = runtimeRecord != null ? runtimeRecord : (last == null ? null : last.raw);
         StringBuilder b = new StringBuilder();
         b.append("App 版本：").append(BuildInfo.APP_VERSION).append('\n');
+        appendCompatibility(b, runtimeRecord);
         String hookVersion = j == null ? "" : j.optString("hookVersion", "");
         b.append("运行 Hook：").append(hookVersion.isEmpty()
                 ? (j == null ? "未知" : "未知（旧版 Hook，无版本字段）") : hookVersion).append('\n');
@@ -691,7 +763,8 @@ public class MainActivity extends Activity {
                 long now = System.currentTimeMillis();
                 boolean hooked = lj != null
                         && ("已注入".equals(lj.optString("hook")) || "Root只读预览".equals(lj.optString("hook")))
-                        && now - lj.optLong("wall", 0) >= 0 && now - lj.optLong("wall", 0) < 20000;
+                        && runtimeFresh(lj);
+                hooked = hooked || runtimeFresh(runtimeRecord);
                 if (!hooked && alive && now - lastLocalPush >= 2000) pushLocalSample(now);
 
                 Uri u = BASE.buildUpon().appendPath("samples").build();
@@ -815,23 +888,34 @@ public class MainActivity extends Activity {
             return;
         }
 
-        ChartView.Sample last = list.isEmpty() ? null : list.get(list.size() - 1);
+        ChartView.Sample last = latestForRender(list);
         JSONObject j = last == null ? null : last.raw;
         String hook = j == null ? "" : j.optString("hook", "");
         String hookVersion = j == null ? "" : j.optString("hookVersion", "");
-        boolean injected = "已注入".equals(hook);
+        boolean injected = "已注入".equals(hook) && runtimeFresh(j);
         // A hook without a version field is older than this build; treat it as needing a reload too.
         boolean stale = injected && !BuildInfo.HOOK_VERSION.equals(hookVersion);
 
         if (j == null) setStatus("等待遥测", ui.muted);
-        else if (injected) setStatus(stale ? "待重载" : "已注入", stale ? ui.warn : ui.good);
+        else if (injected) {
+            boolean unsupported = j.has("compatible") && !j.optBoolean("compatible");
+            setStatus(stale ? "待重载" : unsupported ? "已注入·仅观测" : "已注入", stale || unsupported ? ui.warn : ui.good);
+        }
         else if ("Root只读预览".equals(hook)) setStatus("只读预览", ui.accent);
         else setStatus("未注入", ui.warn);
 
         String phase = j == null ? "" : j.optString("phase", "");
         boolean active = j != null && j.optBoolean("active", false);
         String reason = j == null ? "" : j.optString("reason", "");
-        applyPhase(j, injected, active, phase, reason);
+        applyPhase(j, injected, active && injected && !stale, phase, reason);
+        if (stale) {
+            ovPhase.setText("待重载");
+            ovPhaseDesc.setText("目标服务仍运行旧版 Hook；请正常重启以加载本版兼容层");
+        }
+        if (compatibilityValue != null) {
+            String status = j == null ? "" : j.optString("compatibilityStatus", "");
+            compatibilityValue.setText(stale ? "待重载" : !injected ? "待注入" : CompatibilityCatalog.statusLabel(status));
+        }
 
         ovBattery.setText(temp(j, "battery"));
         ovBatterySub.setText(batterySource(j));
@@ -844,12 +928,13 @@ public class MainActivity extends Activity {
             ovFresh.setText("遥测 · 等待首条样本");
         } else {
             long age = Math.max(0, System.currentTimeMillis() - last.wall);
-            String fresh = age < 20000 ? "新鲜" : age < 35000 ? "略有延迟" : "已过期";
+            // Idle sampling stores one sample per 30 s, so freshness is judged against that cadence.
+            String fresh = age < 45000 ? "新鲜" : age < 75000 ? "略有延迟" : "已过期";
             ovFresh.setText("遥测 " + Ui.time(last.wall) + " · " + fresh + " · " + (age / 1000) + " 秒前");
         }
 
         if (hookVersion.isEmpty()) {
-            appVersionLine.setText("App " + BuildInfo.APP_VERSION + " · 运行 Hook 未知（旧版，需正常重启）");
+            appVersionLine.setText("App " + BuildInfo.APP_VERSION + (injected ? " · 旧版 Hook 未报版本，需正常重启" : " · 暂无有效运行 Hook 回报"));
         } else {
             appVersionLine.setText("App " + BuildInfo.APP_VERSION + " · 运行 Hook " + hookVersion
                     + (stale ? "（尚未重载）" : ""));
@@ -876,7 +961,7 @@ public class MainActivity extends Activity {
             color = ui.muted;
         } else if (!injected) {
             title = "仅观测";
-            desc = "模块尚未注入目标服务，当前只显示 App 自身读数";
+            desc = "暂无有效的目标服务注入回报；当前为本地观测或历史读数";
             color = ui.warn;
         } else if (active) {
             switch (phase) {
