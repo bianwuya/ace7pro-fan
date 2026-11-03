@@ -9,7 +9,7 @@
 | ID | 优先级 | 状态 | 事项与验收标准 |
 |---|---|---|---|
 | PM-001 | P1 | 已完成 | 补齐轻量项目管理文档。验收：本索引、架构、流程、状态、任务、变更记录齐全；相对链接有效；兼容矩阵只由 `COMPATIBILITY.md` 维护。已建立对应文档并通过自动链接/语法检查。 |
-| PM-002 | P1 | 进行中 | 实现 `tools/project.py` 管理命令。验收：`status`、`doctor`、`check`（含 `--staged`）、`test`、`verify`、`release --output DIR`、`install-hooks` 按 [工作流程](knowledge/WORKFLOW.md) 的契约实现；`check --staged` 为轻量检查，`test` 不运行 Android 系统命令，`verify` 离线检查+测试+编译但不安装，`release` 仅产出并审计本地包、不自动安装/push/tag；安装 hook 不覆盖既有 hook，且有实际自测证据。 |
+| PM-002 | P1 | 已完成 | 实现 `tools/project.py` 管理命令。验收：`status`、`doctor`、`check`（含 `--staged`）、`test`、`verify`、`release --output DIR`、`install-hooks` 按 [工作流程](knowledge/WORKFLOW.md) 的契约实现；`check --staged` 为轻量检查，`test` 不运行 Android 系统命令，`verify` 离线检查+测试+编译但不安装，`release` 仅产出并审计本地包、不自动安装/push/tag；安装 hook 不覆盖既有 hook，且有实际自测证据。已通过24项管理自测、真实Git钩子阻断试验、verify及干净提交上的release端到端验证；详情见 [状态记录](knowledge/STATE.md)。 |
 | PM-003 | P1 | 已完成 | 已补充根 [AGENTS.md](AGENTS.md)。验收：只写必要入口与核心边界，链接本索引；不把尚未实际安装/验证的 hook 或脚本写成强制机制。 |
 | PM-004 | P2 | 阻塞 | 远端备份与托管。当前没有 Git remote；已提供本地 CI/问题/PR模板，但尚未联网运行。需用户确认托管目的地、访问权限与可见性后再配置，不自动公开或推送。 |
 | PM-005 | P2 | 待办 | 对外授权许可。未替用户选择 License；如需公开源码，先确认许可与第三方材料分发边界。 |
