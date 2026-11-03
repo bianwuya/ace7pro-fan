@@ -27,7 +27,7 @@ public final class DataProvider extends ContentProvider {
     public static final Uri CONTENT_URI = Uri.parse("content://" + AUTHORITY + "/samples");
     private static final String DB_NAME = "acefan-telemetry.db";
     private static final int DB_VERSION = 1;
-    private static final int MAX_JSON_BYTES = 8192;
+    private static final int MAX_JSON_BYTES = 32768;
     private static final int MAX_SAMPLES = 10000;
     private static final long RETENTION_MS = 7L * 24L * 60L * 60L * 1000L;
     private static final long PUSH_INTERVAL_MS = 1000L;

@@ -252,7 +252,7 @@ public class MainActivity extends Activity {
     }
 
     void buildOverview(LinearLayout col) {
-        header(col, "风扇助手", "ACE7 Pro · 息屏充电增强", true);
+        header(col, "风扇助手", "ACE 7 系列 · 息屏充电增强", true);
 
         LinearLayout hero = ui.card();
         hero.addView(ui.text("当前阶段", 12, ui.muted, false));
@@ -590,20 +590,35 @@ public class MainActivity extends Activity {
         }
         b.append(runtimeFresh(j) ? "本次有效回报\n" : "历史回报（已过期，不能证明当前激活）\n");
         b.append("Hook：").append(j.optString("hookVersion", "未知/旧版")).append('\n');
-        if (!BuildInfo.HOOK_VERSION.equals(j.optString("hookVersion", "")))
-            b.append("新兼容层尚未加载，请正常重启后重新诊断。\n");
-        b.append("固件适配：").append(CompatibilityCatalog.statusLabel(j.optString("compatibilityStatus", ""))).append('\n');
+        if (!BuildInfo.HOOK_VERSION.equals(j.optString("hookVersion", ""))) {
+            b.append(runtimeFresh(j) ? "新兼容层尚未加载，请正常重启后重新诊断。\n"
+                    : "历史 Hook 版本不同；当前加载状态未知，请重新诊断。\n");
+        }
+        b.append("接口诊断：").append(DiagnosticReport.statusLabel(j.optString("compatibilityStatus", ""))).append('\n');
         String stage = j.optString("compatibilityStage", "");
-        if (!stage.isEmpty()) b.append("失败阶段：").append(stage).append('\n');
-        if (j.has("compatibilityDetail")) b.append(j.optString("compatibilityDetail")).append('\n');
+        if (!stage.isEmpty()) b.append("上报阶段：").append(stage).append('\n');
+        String detail = j.optString("compatibilityDetail", "");
+        if (!detail.isEmpty()) b.append("上报详情：").append(detail).append('\n');
         if (j.has("targetVersion")) b.append("原厂服务：").append(j.optString("targetVersion")).append('\n');
-        if (j.has("firmwareProfile")) b.append("匹配档案：").append(j.optString("firmwareProfile")).append('\n');
+        if (j.has("firmwareProfile")) b.append("接口档案：").append(j.optString("firmwareProfile")).append('\n');
+        String progress = reportField(j, "runtimeProgress");
+        String counters = reportField(j, "runtimeCounters");
+        String evidence = reportField(j, "runtimeEvidence");
+        String failureStage = reportField(j, "lastFailureStage");
+        String failureDetail = reportField(j, "lastFailureDetail");
+        b.append("运行进度：").append(progress.isEmpty() ? "未上报" : progress).append('\n');
+        b.append("运行计数：").append(counters.isEmpty() ? "未上报" : counters).append('\n');
+        b.append("逐环节证据（上报原文，上游可能截断）：\n").append(evidence.isEmpty() ? "未上报" : evidence);
+        if (!evidence.endsWith("\n")) b.append('\n');
+        b.append("最近失败阶段：").append(failureStage.isEmpty() ? "未上报 / 未观察到" : failureStage).append('\n');
+        b.append("最近失败详情：").append(failureDetail.isEmpty() ? "未上报 / 未观察到" : failureDetail).append('\n');
+        b.append("最近失败记录在恢复后仍保留，是否仍异常需结合最新证据；未上报或未触发不代表失败。\n");
         b.append("Xposed Bridge API：").append(j.isNull("frameworkApi") ? "旧版未回报/未知" : j.optString("frameworkApi", "未知"))
                 .append("（不是 LSPosed 版本号）\n");
         String version = j.isNull("frameworkVersion") ? "" : j.optString("frameworkVersion", "");
         b.append("运行框架版本：").append(version.isEmpty() ? "框架未公开，不使用 Manager 版本冒充" : version).append('\n');
         if (!version.isEmpty()) b.append("来源：").append(j.optString("frameworkVersionSource", "注入框架")).append('\n');
-        b.append("注入成功、接口匹配与实际增强效果是三个独立结论。\n");
+        b.append("注入、接口接入与实际增强效果是独立结论；控制请求或原厂状态确认不等于实测物理转速。\n");
     }
 
     boolean runtimeFresh(JSONObject j) {
@@ -657,7 +672,10 @@ public class MainActivity extends Activity {
         String hookVersion = j == null ? "" : j.optString("hookVersion", "");
         b.append("运行 Hook：").append(hookVersion.isEmpty()
                 ? (j == null ? "未知" : "未知（旧版 Hook，无版本字段）") : hookVersion).append('\n');
-        b.append("注入状态：").append(j == null ? "等待遥测" : nonEmpty(j.optString("hook", "未知"))).append('\n');
+        String reportedHook = j == null ? "等待遥测" : nonEmpty(j.optString("hook", "未知"));
+        if (j != null && "已注入".equals(reportedHook) && !runtimeFresh(j))
+            reportedHook = "历史回报：已注入（已过期）";
+        b.append("注入状态：").append(reportedHook).append('\n');
         if (j != null) {
             b.append("固件：").append(nonEmpty(j.optString("build", "--"))).append('\n');
             b.append("阶段：").append(nonEmpty(j.optString("phase", "--")))
@@ -665,7 +683,8 @@ public class MainActivity extends Activity {
                     .append(" · 亮屏 ").append(bool(j, "interactive")).append('\n');
             b.append("开关：").append(j.optBoolean("enabled", false) ? "开" : "关")
                     .append(" · 配置版本 ").append(j.optLong("configVersion", 0)).append('\n');
-            b.append("候选 / 请求：").append(level(j, "candidate")).append(" / ").append(level(j, "request")).append('\n');
+            b.append("原厂 / 候选 / 请求：").append(level(j, "oem")).append(" / ")
+                    .append(level(j, "candidate")).append(" / ").append(level(j, "request")).append('\n');
             b.append("驱动 / 有效：").append(level(j, "driver")).append(" / ").append(level(j, "effective")).append('\n');
             b.append("驱动状态：").append(nonEmpty(j.optString("fanStatus", "--")))
                     .append(" · state ").append(level(j, "state")).append('\n');
@@ -685,8 +704,7 @@ public class MainActivity extends Activity {
         in.appVersion = BuildInfo.APP_VERSION;
         in.hookVersion = j == null ? "" : j.optString("hookVersion", "");
         // Same rule the UI uses for "待重载": an injected hook with the wrong version is stale.
-        boolean injected = j != null && ("已注入".equals(j.optString("hook", ""))
-                || "Root只读预览".equals(j.optString("hook", ""))) && runtimeFresh(j);
+        boolean injected = j != null && "已注入".equals(j.optString("hook", "")) && runtimeFresh(j);
         in.hookStale = injected && !BuildInfo.HOOK_VERSION.equals(in.hookVersion);
         in.model = Build.MODEL;
         in.device = Build.DEVICE;
@@ -698,6 +716,10 @@ public class MainActivity extends Activity {
         in.incremental = Build.VERSION.INCREMENTAL;
         in.hardwareGate = j == null ? "" : j.optString("hardwareGate", "");
         in.hookState = j == null ? "" : j.optString("hook", "");
+        if ("已注入".equals(in.hookState) && !runtimeFresh(j)) {
+            in.hookState = "历史注入回报（已过期）";
+            in.extra = "第 [2]–[6] 节的 Hook 状态和运行证据来自过期历史回报，不能证明当前状态。";
+        }
         in.frameworkApi = j == null || j.isNull("frameworkApi") ? "" : j.optString("frameworkApi", "");
         in.frameworkVersion = j == null || j.isNull("frameworkVersion") ? "" : j.optString("frameworkVersion", "");
         in.manager = FrameworkCompat.managers(this);
@@ -707,6 +729,11 @@ public class MainActivity extends Activity {
         in.detail = j == null ? "" : j.optString("compatibilityDetail", "");
         in.profile = j == null ? "" : j.optString("firmwareProfile", "");
         in.trace = j == null ? "" : j.optString("compatibilityTrace", "");
+        in.runtimeEvidence = reportField(j, "runtimeEvidence");
+        in.runtimeProgress = reportField(j, "runtimeProgress");
+        in.runtimeCounters = reportField(j, "runtimeCounters");
+        in.lastFailureStage = reportField(j, "lastFailureStage");
+        in.lastFailureDetail = reportField(j, "lastFailureDetail");
         in.knownApk = j == null ? "" : j.optString("knownApk", "");
         // Fall back to what this app can read itself when the hook never reported (not injected).
         in.targetPackage = j == null || j.optString("targetPackage", "").isEmpty()
@@ -715,11 +742,12 @@ public class MainActivity extends Activity {
         if (j != null) {
             in.targetPath = j.optString("targetPath", "");
             in.targetSha256 = j.optString("targetSha256", "");
-            in.enabled = String.valueOf(j.optBoolean("enabled", false));
-            in.active = String.valueOf(j.optBoolean("active", false));
+            in.enabled = bool(j, "enabled");
+            in.active = bool(j, "active");
             in.phase = j.optString("phase", "");
             in.reason = j.optString("reason", "");
-            in.candidate = level(j, "oem");
+            in.oem = level(j, "oem");
+            in.candidate = level(j, "candidate");
             in.request = level(j, "request");
             in.driver = level(j, "driver");
             in.effective = level(j, "effective");
@@ -731,9 +759,13 @@ public class MainActivity extends Activity {
             in.keyguard = bool(j, "keyguardLocked");
             in.interactive = bool(j, "interactive");
         }
-        if (in.targetPath == null || in.targetPath.isEmpty()) in.targetPath = "未取得（需注入后回报）";
-        if (in.targetSha256 == null || in.targetSha256.isEmpty()) in.targetSha256 = "未取得（需注入后回报）";
+        if (in.targetPath == null || in.targetPath.isEmpty()) in.targetPath = "未上报";
+        if (in.targetSha256 == null || in.targetSha256.isEmpty()) in.targetSha256 = "未上报（不作为接入门槛）";
         return in;
+    }
+
+    static String reportField(JSONObject j, String key) {
+        return j == null || j.isNull(key) ? "" : j.optString(key, "");
     }
 
     String targetVersionOf(String pkg) {
@@ -771,12 +803,12 @@ public class MainActivity extends Activity {
                     Toast.makeText(this, "剪贴板不可用", Toast.LENGTH_SHORT).show();
                     return;
                 }
-                cm.setPrimaryClip(ClipData.newPlainText("ACE7pro 设备兼容报告", report));
+                cm.setPrimaryClip(ClipData.newPlainText("ACE 7 系列设备兼容报告", report));
                 Toast.makeText(this, "已复制 " + report.length() + " 字，可直接粘贴给对方", Toast.LENGTH_LONG).show();
             } else if (index == 1) {
                 Intent i = new Intent(Intent.ACTION_SEND);
                 i.setType("text/plain");
-                i.putExtra(Intent.EXTRA_SUBJECT, "ACE7pro 风扇助手 · 设备兼容报告");
+                i.putExtra(Intent.EXTRA_SUBJECT, "ACE 7 系列风扇助手 · 设备兼容报告");
                 i.putExtra(Intent.EXTRA_TEXT, report);
                 try {
                     startActivity(Intent.createChooser(i, "分享设备兼容报告"));
@@ -1051,8 +1083,16 @@ public class MainActivity extends Activity {
 
         if (j == null) setStatus("等待遥测", ui.muted);
         else if (injected) {
-            boolean unsupported = j.has("compatible") && !j.optBoolean("compatible");
-            setStatus(stale ? "待重载" : unsupported ? "已注入·仅观测" : "已注入", stale || unsupported ? ui.warn : ui.good);
+            String status = j.optString("compatibilityStatus", "");
+            boolean waiting = "pending".equals(status);
+            boolean notReady = "setup-failed".equals(status) || "outside-family".equals(status)
+                    || "unsupported".equals(status) || "runtime-error".equals(status);
+            boolean hasFailureRecord = "partial-error".equals(status)
+                    || !reportField(j, "lastFailureStage").isEmpty()
+                    || !reportField(j, "lastFailureDetail").isEmpty();
+            setStatus(stale ? "待重载" : notReady || hasFailureRecord ? "已注入·查看诊断"
+                            : waiting ? "已注入·待接入" : "已注入",
+                    stale || notReady ? ui.warn : hasFailureRecord ? ui.accent : waiting ? ui.muted : ui.good);
         }
         else if ("Root只读预览".equals(hook)) setStatus("只读预览", ui.accent);
         else setStatus("未注入", ui.warn);
@@ -1067,7 +1107,7 @@ public class MainActivity extends Activity {
         }
         if (compatibilityValue != null) {
             String status = j == null ? "" : j.optString("compatibilityStatus", "");
-            compatibilityValue.setText(stale ? "待重载" : !injected ? "待注入" : CompatibilityCatalog.statusLabel(status));
+            compatibilityValue.setText(stale ? "待重载" : !injected ? "待注入" : DiagnosticReport.statusLabel(status));
         }
 
         ovBattery.setText(temp(j, "battery"));

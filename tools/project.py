@@ -256,7 +256,7 @@ def doctor(root=ROOT, require_build=False):
         if not found:
             signing_missing.append(name)
     reference = (root / 'build/compat-fixtures/reference.apk').is_file()
-    print('OEM reference: ' + ('available locally; not distributable' if reference else 'absent; real-OEM test will be SKIPPED'))
+    print('OEM reference: ' + ('historical sample available locally; default tests use live-interface fixtures' if reference else 'absent; not required for runtime interface tests'))
     if missing and require_build:
         raise ProjectError('missing build prerequisites; no installation/download attempted')
     return not missing and not signing_missing
@@ -436,7 +436,7 @@ def release(output, root=ROOT):
         (stage / 'BUILD_INFO.json').write_text(json.dumps(report, ensure_ascii=False, indent=2) + '\n')
         (stage / 'VALIDATION.txt').write_text('Local verification package; no installation, tagging, pushing or device operations.\n'
             'All automated gates above passed. Check BUILD_INFO.json for exact commit and OEM-reference availability.\n'
-            'OEM-reference absence means that test was SKIPPED, not passed. Synthetic fixtures are not extra firmware tests.\n'
+            'Historical OEM reference is not a runtime prerequisite. Synthetic direct-interface fixtures are not extra firmware tests.\n'
             'Physical validation remains manual; see knowledge/STATE.md and TASKS.md inside source.zip.\n')
         sums = ''.join(hashlib.sha256(p.read_bytes()).hexdigest() + '  ' + p.name + '\n' for p in sorted(stage.iterdir()))
         (stage / 'SHA256SUMS.txt').write_text(sums)

@@ -3,376 +3,203 @@ package dev.eta.acefan;
 import java.lang.reflect.Field;
 import java.lang.reflect.Method;
 import java.lang.reflect.Modifier;
+import java.util.ArrayList;
 import java.util.Arrays;
-import java.util.HashMap;
-import java.util.LinkedHashMap;
-import java.util.Map;
+import java.util.List;
 
-/** OEM V3 adapter. Resolve everything before installing a control hook; ambiguity is not support. */
+/** Direct OEM interface adapter. No APK, DEX or reference-firmware comparison. */
 public final class FanServiceCompat {
-    private static final String ROOT = "com.oplus.exsystemservice.fan.";
-    public static final String PROFILE = "oplus-fan-v3-code1";
-
-    /** Diagnostic only: which resolution step was reached before a failure. Never gates control. */
-    private static final java.util.List<String> trace = new java.util.ArrayList<String>();
-    private static volatile String current = "";
-    private static void step(String label) {
-        synchronized (trace) { if (trace.size() < 40) trace.add(label); }
-    }
-    private static void attempting(String stage) {
-        current = stage;
-        step("→ " + stage);
-    }
-    private static String nz(String v, String fallback) {
-        return v == null || v.trim().isEmpty() ? fallback : v;
-    }
-    /** Snapshot of the last resolution attempt, for the exportable device report. */
-    public static java.util.List<String> lastTrace() {
-        synchronized (trace) { return new java.util.ArrayList<String>(trace); }
-    }
-    public static void resetTrace() {
-        synchronized (trace) { trace.clear(); }
-    }
-    /** Keeps the reflective-failure type contract while recording which step failed. */
+    private static final String ROOT="com.oplus.exsystemservice.fan.";
+    public static final String PROFILE="ace7-live-interfaces";
+    private static final List<String> trace=new ArrayList<String>();
+    private static volatile String current="";
+    static void step(String s){synchronized(trace){if(trace.size()<48)trace.add(s);}}
+    static void attempting(String s){current=s;step("→ "+s);}
+    public static List<String> lastTrace(){synchronized(trace){return new ArrayList<String>(trace);}}
+    public static void resetTrace(){synchronized(trace){trace.clear();}current="";}
     private static final class StageFailure extends ReflectiveOperationException {
         final String stage;
-        StageFailure(String stage, Throwable cause) {
-            super(cause == null ? stage : String.valueOf(cause.getMessage()), cause);
-            this.stage = stage;
-        }
+        StageFailure(String s,Throwable t){super(s+": "+summary(t),t);stage=s;}
     }
-    /** Stage name of the last thrown StageFailure, or "" when the failure was not staged. */
-    static String stageOf(Throwable t) {
-        for (Throwable cur = t; cur != null; cur = cur.getCause())
-            if (cur instanceof StageFailure) return ((StageFailure) cur).stage;
-        return "";
+    static String stageOf(Throwable t){for(Throwable c=t;c!=null;c=c.getCause())if(c instanceof StageFailure)return ((StageFailure)c).stage;return "";}
+    public static String summary(Throwable t){
+        while(t instanceof java.lang.reflect.InvocationTargetException && t.getCause()!=null)t=t.getCause();
+        if(t==null)return "未知异常";
+        String s=t.getClass().getName()+": "+String.valueOf(t.getMessage());
+        StackTraceElement[] stack=t.getStackTrace();
+        if(stack.length>0)s+=" @ "+stack[0];
+        return s.length()>360?s.substring(0,360):s;
     }
     public static final class Bootstrap {
         public final Class<?> engineClass;
-        public final Method initialize, refresh;
+        public final Method initialize,refresh;
         public final Field orchestrator;
-        Bootstrap(Class<?> c, Method i, Method r, Field f) { engineClass=c; initialize=i; refresh=r; orchestrator=f; }
+        Bootstrap(Class<?> c,Method i,Method r,Field f){engineClass=c;initialize=i;refresh=r;orchestrator=f;}
     }
+    public final Object orchestratorObject,controller,parser;
+    public final List<Method> candidates,strategyGetters,setters;
+    public final Field choice,updated,lastEvent,currentLevel,maximumField;
+    public final Method maxLevel;
+    private final List<Method> strategyNames;
+    private Object mode;
+    private Method automatic;
 
-    public final Method candidate, setLevel, healthy, maxLevel, getStrategy, strategyName;
-    public final Field choice, updated, lastEvent;
-    public final Object controller, parser;
-    public final Map<String, Method> evidence;
-    private final Map<String, String> aliases;
-
-    private FanServiceCompat(Method candidate, Method setLevel, Method healthy, Method maxLevel,
-            Method getStrategy, Method strategyName, Field choice, Field updated, Field lastEvent,
-            Object controller, Object parser, Map<String, Method> evidence, Map<String, String> aliases) {
-        this.candidate=candidate; this.setLevel=setLevel; this.healthy=healthy; this.maxLevel=maxLevel;
-        this.getStrategy=getStrategy; this.strategyName=strategyName; this.choice=choice;
-        this.updated=updated; this.lastEvent=lastEvent; this.controller=controller; this.parser=parser;
-        this.evidence=evidence; this.aliases=aliases;
+    private FanServiceCompat(Object o,Object c,Object p,List<Method> cs,List<Method> gs,List<Method> ss,
+            Field choice,Field updated,Field lastEvent,Field currentLevel,Field maximumField,Method maximum,List<Method> names){
+        orchestratorObject=o;controller=c;parser=p;candidates=cs;strategyGetters=gs;setters=ss;
+        this.choice=choice;this.updated=updated;this.lastEvent=lastEvent;this.currentLevel=currentLevel;
+        this.maximumField=maximumField;maxLevel=maximum;strategyNames=names;
     }
-
-    public static Bootstrap bootstrap(ClassLoader loader, Class<?> context, Class<?> handler) throws Exception {
-        return bootstrap(Class.forName(ROOT+"core.Aeolus", false, loader), context, handler);
+    public static Bootstrap bootstrap(ClassLoader loader,Class<?> context,Class<?> handler)throws Exception{
+        resetTrace();attempting("引擎类定位");
+        try{return bootstrap(Class.forName(ROOT+"core.Aeolus",false,loader),context,handler);}
+        catch(Exception e){throw staged(e);}
     }
-    static Bootstrap bootstrap(Class<?> engine, Class<?> context, Class<?> handler) throws Exception {
-        resetTrace();
-        step("引擎类已定位：" + engine.getName() + (engine.isEnum() ? "（单例枚举）" : "（非枚举）"));
-        if (!engine.isEnum()) throw new StageFailure("引擎入口", new NoSuchFieldException("Aeolus is not a singleton enum"));
-        Method init=uniqueMethod(engine, void.class, Modifier.PUBLIC, "f", context, handler);
-        step("初始化方法匹配：f(" + context.getSimpleName() + "," + handler.getSimpleName() + ")");
-        Method refresh=uniqueMethod(engine, void.class, Modifier.PRIVATE | Modifier.SYNCHRONIZED, "g", String.class);
-        Field orchestrator=field(engine, "mOrchestrator", null);
-        step("刷新方法匹配：g(String)；编排器字段：mOrchestrator:" + orchestrator.getType().getName());
-        if (orchestrator.getType().isPrimitive() || Modifier.isFinal(orchestrator.getModifiers()))
-            throw new StageFailure("编排器字段", new NoSuchFieldException("invalid orchestrator field"));
-        return new Bootstrap(engine,init,refresh,orchestrator);
+    static Bootstrap bootstrap(Class<?> engine,Class<?> context,Class<?> handler)throws Exception{
+        try{
+            attempting("初始化入口");
+            List<Method> init=methods(engine,void.class,context,handler);
+            List<Method> publicInit=new ArrayList<Method>();
+            for(Method m:init)if(Modifier.isPublic(m.getModifiers()))publicInit.add(m);
+            Method initialize=one(publicInit.isEmpty()?init:publicInit,"初始化 void(Context,Handler)");
+            attempting("原厂重算入口");
+            Method refresh=one(methods(engine,void.class,String.class),"重算 void(String)");
+            Field orchestrator=optionalField(engine,"mOrchestrator",null);
+            step("初始化："+methodKey(initialize));step("重算："+methodKey(refresh));
+            if(orchestrator==null)step("mOrchestrator 未找到，将从实际引擎对象定位编排器");
+            return new Bootstrap(engine,initialize,refresh,orchestrator);
+        }catch(Exception e){throw staged(e);}
     }
-
-    public static FanServiceCompat resolve(Bootstrap boot, Object engine, ClassLoader loader,
-            Class<?> context, Class<?> handler) throws Exception {
-        current = "";
-        Class<?> ctrl, config, strategy;
-        try {
-            ctrl=Class.forName(ROOT+"controller.OplusFanController", false, loader);
-            config=Class.forName(ROOT+"core.ConfigParser", false, loader);
-            strategy=Class.forName(ROOT+"strategies.Strategy", false, loader);
-        } catch (Throwable t) {
-            throw new StageFailure("原厂风扇类定位", t);
-        }
-        step("原厂类定位：" + ctrl.getSimpleName() + " / " + config.getSimpleName() + " / " + strategy.getSimpleName());
-        return resolve(boot,engine,ctrl,config,strategy,context,handler);
+    public static FanServiceCompat resolve(Bootstrap boot,Object engine,ClassLoader loader,Class<?> context,Class<?> handler)throws Exception{
+        Class<?> ctrl=optionalClass(loader,ROOT+"controller.OplusFanController");
+        Class<?> config=optionalClass(loader,ROOT+"core.ConfigParser");
+        Class<?> strategy=optionalClass(loader,ROOT+"strategies.Strategy");
+        FanServiceCompat result=resolve(boot,engine,ctrl,config,strategy,context,handler);
+        Class<?> modeClass=optionalClass(loader,ROOT+"core.FanMode");
+        result.mode=optionalSingleton(modeClass);
+        List<Method> choices=modeClass==null?new ArrayList<Method>():publicMethods(modeClass,boolean.class);
+        if(choices.size()==1)result.automatic=choices.get(0);
+        step("原厂自动模式："+(result.automatic==null?"不可用，沿用明确设置与原厂场景":result.automatic));
+        return result;
     }
-
-    static FanServiceCompat resolve(Bootstrap boot, Object engine, Class<?> ctrl, Class<?> config,
-            Class<?> strategy, Class<?> context, Class<?> handler) throws Exception {
-        try {
-            return resolveStaged(boot, engine, ctrl, config, strategy, context, handler);
-        } catch (StageFailure f) {
-            throw f;
-        } catch (Exception e) {
-            throw new StageFailure(nz(current, "未知阶段"), e);
-        }
-    }
-
-    @SuppressWarnings("unused")
-    private static FanServiceCompat resolveStaged(Bootstrap boot, Object engine, Class<?> ctrl, Class<?> config,
-            Class<?> strategy, Class<?> context, Class<?> handler) throws Exception {
-        attempting("读取编排器实例");
-        Object orches=boot.orchestrator.get(engine);
-        if (orches==null) throw new NoSuchFieldException("原厂风扇未初始化 / mOrchestrator=null");
-        Class<?> concrete=orches.getClass(), base=boot.orchestrator.getType();
-        step("编排器实例：" + concrete.getName() + "（基类 " + base.getName() + "）");
-        if (concrete==base || !base.isAssignableFrom(concrete)) throw new NoSuchMethodException("not a V3 orchestrator");
-        concrete.getDeclaredConstructor(context,handler);
-        attempting("候选档位方法");
-        Method candidate=uniqueMethod(concrete,int.class,Modifier.PRIVATE,"q");
-        step("候选方法匹配：" + candidate.getName() + "()I（按 private ()I 唯一确定，名字不作要求）");
-        // Do not guess the downstream protection or controller status methods among same-type getters.
-        attempting("后续保护与降噪方法");
-        Method compute=shape(concrete,void.class,Modifier.PROTECTED,"c");
-        Method noise=shape(concrete,int.class,Modifier.PRIVATE,"s",int.class);
-        Method recalc=shape(base,void.class,Modifier.PUBLIC,"f",String.class);
-        Method apply=shape(base,void.class,Modifier.PUBLIC,"b");
-        attempting("控制器与档位上限方法");
-        Method set;
-        try {
-            set=shape(ctrl,void.class,Modifier.PUBLIC,"i",int.class);
-        } catch (NoSuchMethodException e) {
-            step("控制器 set 候选（public void(int)）：" + candidates(ctrl, void.class, int.class));
-            throw e;
-        }
-        Method health=healthMethod(ctrl);
-        Method maximum;
-        try {
-            maximum=shape(config,int.class,Modifier.PUBLIC,"d");
-        } catch (NoSuchMethodException e) {
-            step("档位上限候选（public int()）：" + candidates(config, int.class));
-            throw e;
-        }
-        attempting("控制器状态字段");
-        Field updated=field(ctrl,"mCurrentSpeedLevelUpdated",boolean.class);
-        Field event=field(ctrl,"mLastUEvent",int.class);
-        attempting("策略枚举");
-        Method strategyName=shape(strategy,String.class,Modifier.PUBLIC,"b");
-        if (!strategy.isEnum()) throw new NoSuchFieldException("Strategy is not an enum");
-        java.util.HashSet<String> names=new java.util.HashSet<String>();
-        for(Object s:strategy.getEnumConstants()) names.add(String.valueOf(strategyName.invoke(s)));
-        step("策略枚举：" + names);
-        if (!names.containsAll(Arrays.asList("Common","KeyguardLocked","ChargeWhileKeyguardLocked","SuperCharging","ShutDown","PocketMode","TelephonyInHeld")))
-            throw new NoSuchFieldException("策略名称/保护场景不匹配");
-        attempting("场景选择器");
-        Field choice=null; Method getter=null;
-        for(Field f:base.getDeclaredFields()) {
-            if(Modifier.isStatic(f.getModifiers()) || !Modifier.isFinal(f.getModifiers()) || f.getType().isPrimitive()
-                    || f.getType()==context || f.getType()==handler || f.getType()==String.class)continue;
-            Method possible=null;
-            for(Method m:f.getType().getDeclaredMethods())
-                if(!Modifier.isStatic(m.getModifiers()) && !m.isSynthetic() && m.getReturnType()==strategy && m.getParameterTypes().length==0) {
-                    if(possible!=null)throw new NoSuchMethodException("ambiguous strategy getter"); possible=m;
-                }
-            if(possible==null)continue;
-            if(choice!=null)throw new NoSuchFieldException("ambiguous selector field");
-            choice=f; getter=possible;
-        }
-        if(choice==null)throw new NoSuchFieldException("strategy selector missing");
-        choice.setAccessible(true); getter.setAccessible(true);
-        step("选择器：" + choice.getDeclaringClass().getName() + "." + choice.getName() + " : " + choice.getType().getName());
-        Class<?> selector=choice.getType();
-        attempting("选择器使能与更新方法");
-        Method enabled=shape(selector,boolean.class,0,"i");
-        Method select=shape(selector,void.class,0,"j");
-        Map<String,Method> proof=new LinkedHashMap<String,Method>();
-        proof.put("candidate",candidate); proof.put("downstream",compute); proof.put("noise",noise);
-        proof.put("recalculate",recalc); proof.put("apply",apply); proof.put("selectorEnabled",enabled);
-        proof.put("selectorUpdate",select); proof.put("controllerSet",set); proof.put("controllerHealth",health);
-        proof.put("maximum",maximum); proof.put("refresh",boot.refresh);
-        Map<String,String> aliases=new HashMap<String,String>();
-        aliases.put(descriptor(concrete),"@orchestrator;"); aliases.put(descriptor(base),"@base;");
-        aliases.put(descriptor(selector),"@selector;");
-        for(Map.Entry<String,Method> p:proof.entrySet()) aliases.put(methodKey(p.getValue()),"@"+p.getKey());
-        aliases.put(methodKey(getter),"@getStrategy"); aliases.put(fieldKey(choice),"@choice");
-        return new FanServiceCompat(candidate,set,health,maximum,getter,strategyName,choice,updated,event,
-                singleton(ctrl),singleton(config),proof,aliases);
-    }
-
-    /**
-     * Verifies the resolved methods against the reference profile.
-     *
-     * Primary gate: semantic evidence. Each role must still reference the members that give it
-     * its meaning (e.g. controller health must read mLastUEvent). Renamed or added members are
-     * irrelevant; this survives obfuscation changes and ordinary recompiles.
-     *
-     * Auxiliary: the instruction hash is reported but never blocks on its own, because any
-     * recompile changes register allocation and pool order without changing behaviour.
-     */
-    public void verifyCode(String apk) throws Exception {
-        attempting("接口语义核对");
-        Map<String,String> roleByKey=new HashMap<String,String>();
-        for(Map.Entry<String,Method> e:evidence.entrySet())roleByKey.put(methodKey(e.getValue()),e.getKey());
-        Map<String,MethodEvidence> got;
-        try {
-            got=DexFingerprint.readEvidence(apk,roleByKey.keySet(),aliases);
-        } catch (java.io.IOException io) {
-            throw new NoSuchMethodException("关键方法体定位失败：" + io.getMessage() + "（接口形状匹配，但保护链代码无法读取）");
-        }
-        java.util.List<String> bad=new java.util.ArrayList<String>();
-        int checkedRoles=0, checkedRefs=0;
-        for(Map.Entry<String,MethodEvidence> e:got.entrySet()) {
-            String role=roleByKey.get(e.getKey());
-            if(role==null) {
-                // Unmapped evidence would silently skip verification; that must never pass.
-                bad.add("未映射的证据条目："+e.getKey());
-                continue;
+    static FanServiceCompat resolve(Bootstrap boot,Object engine,Class<?> ctrl,Class<?> config,Class<?> strategy,Class<?> context,Class<?> handler)throws Exception{
+        try{
+            attempting("读取编排器实例");
+            Object orches=boot.orchestrator==null?findOrchestrator(engine):boot.orchestrator.get(engine);
+            if(orches==null)throw new NoSuchFieldException("原厂尚未初始化编排器；可在下次初始化继续");
+            step("实际编排器："+orches.getClass().getName());
+            attempting("候选档位入口");
+            List<Method> candidates=candidateMethods(orches.getClass());
+            if(candidates.isEmpty())throw new NoSuchMethodException("无候选 int()；实际方法："+inventory(orches.getClass()));
+            for(Method m:candidates)step("候选："+methodKey(m));
+            if(candidates.size()>1)step("多个候选，先观察原厂调用与策略读取，不凭混淆名挑选");
+            attempting("当前场景读取");
+            if(strategy==null)throw new ClassNotFoundException("原厂 Strategy 类缺失");
+            Field choice=null;List<Method> getters=null;
+            for(Field f:fields(orches.getClass())){
+                if(Modifier.isStatic(f.getModifiers())||f.getType().isPrimitive()||f.getType().getName().startsWith("java.")||f.getType()==context||f.getType()==handler)continue;
+                List<Method> gs=methods(f.getType(),strategy);
+                if(gs.isEmpty())continue;
+                f.setAccessible(true);Object actual=f.get(orches);if(actual==null)continue;
+                if(choice!=null)throw new NoSuchFieldException("多个实际策略选择器："+choice+" / "+f);
+                choice=f;getters=gs;
             }
-            String[] required=ReferenceFanProfile.EVIDENCE.get(role);
-            if(required==null) { bad.add("证据档案缺少角色："+role); continue; }
-            checkedRoles++;
-            // Both sides are canonicalised through the same alias table by DexFingerprint.
-            String body=e.getValue().fields + ", " + e.getValue().calls;
-            for(String want:required) {
-                checkedRefs++;
-                if(!body.contains(want)) bad.add(role+" 缺少引用："+want);
+            if(choice==null)throw new NoSuchFieldException("当前策略选择器缺失；编排器字段："+fieldInventory(orches.getClass()));
+            step("场景选择器："+choice+"；读取入口 "+getters);
+            List<Method> names=methods(strategy,String.class);
+            attempting("独立能力读取");
+            Object controller=optionalSingleton(ctrl),parser=optionalSingleton(config);
+            List<Method> setters=ctrl==null?new ArrayList<Method>():publicMethods(ctrl,void.class,int.class);
+            Field max=optionalField(config,"mSpeedLevelMax",int.class);
+            List<Method> maxMethods=config==null?new ArrayList<Method>():publicMethods(config,int.class);
+            Method maximum=maxMethods.size()==1?maxMethods.get(0):null;
+            Field updated=optionalField(ctrl,"mCurrentSpeedLevelUpdated",boolean.class);
+            Field event=optionalField(ctrl,"mLastUEvent",int.class);
+            Field level=optionalField(ctrl,"mCurrentSpeedLevel",int.class);
+            step("档位上限："+(max!=null?max:maximum!=null?maximum:"读取入口缺失，将报告本环节"));
+            step("控制请求观察："+(setters.isEmpty()?"不可用；候选仍可运行，锁屏衔接等待确认":setters.toString()));
+            step("健康事件："+(event==null?"未知，保留原厂故障处理":event.toString()));
+            step("确认字段："+(updated==null?"不可用；不虚报确认":updated.toString()));
+            return new FanServiceCompat(orches,controller,parser,candidates,getters,setters,choice,updated,event,level,max,maximum,names);
+        }catch(Exception e){throw staged(e);}
+    }
+    private static StageFailure staged(Exception e){return e instanceof StageFailure?(StageFailure)e:new StageFailure(current,e);}
+    public Boolean readAutomatic()throws Exception{return mode!=null&&automatic!=null?(Boolean)automatic.invoke(mode):null;}
+    public int readMaximum()throws Exception{
+        if(parser==null)throw new NoSuchFieldException("ConfigParser 实例不可用");
+        int n;
+        if(maximumField!=null)n=maximumField.getInt(parser);
+        else if(maxLevel!=null)n=((Number)maxLevel.invoke(parser)).intValue();
+        else throw new NoSuchFieldException("mSpeedLevelMax / 唯一 int() 均不可用");
+        if(n<=0)throw new IllegalStateException("原厂上限尚未就绪："+n);
+        return n;
+    }
+    public String readStrategy()throws Exception{
+        Object selector=choice.get(orchestratorObject);
+        String found=null;
+        for(Method m:strategyGetters){
+            Object value=m.invoke(selector);if(value==null)continue;
+            String name=strategyLabel(value);
+            if(found!=null&&!found.equals(name))throw new IllegalStateException("场景读取结果不一致："+found+" / "+name);
+            found=name;
+        }
+        if(found==null)throw new IllegalStateException("当前策略为空");return found;
+    }
+    private String strategyLabel(Object value)throws Exception{
+        for(Method m:strategyNames){try{String s=String.valueOf(m.invoke(value));if(knownScene(s))return s;}catch(ReflectiveOperationException e){step("标签读取失败："+methodKey(m)+" "+summary(e));}}
+        return value instanceof Enum?((Enum<?>)value).name():String.valueOf(value);
+    }
+    private static boolean knownScene(String s){return allowedScene(s)||Arrays.asList("ShutDown","PocketMode","TelephonyInHeld").contains(s);}
+    public static boolean allowedScene(String s){return Arrays.asList("Common","KeyguardLocked","ChargeWhileKeyguardLocked","SuperCharging").contains(s);}
+    public Integer event()throws Exception{return controller!=null&&lastEvent!=null?Integer.valueOf(lastEvent.getInt(controller)):null;}
+    public Boolean confirmed(Object c)throws Exception{return c!=null&&updated!=null?Boolean.valueOf(updated.getBoolean(c)):null;}
+    public Integer level(Object c)throws Exception{return c!=null&&currentLevel!=null?Integer.valueOf(currentLevel.getInt(c)):null;}
+    private static Object findOrchestrator(Object engine)throws Exception{
+        Object found=null;
+        for(Field f:fields(engine.getClass())){
+            if(Modifier.isStatic(f.getModifiers())||f.getType().isPrimitive()||f.getType().getName().startsWith("java."))continue;
+            if(candidateMethods(f.getType()).isEmpty())continue;
+            f.setAccessible(true);Object o=f.get(engine);if(o==null)continue;
+            if(found!=null)throw new NoSuchFieldException("多个编排器对象："+fieldInventory(engine.getClass()));found=o;
+        }
+        return found;
+    }
+    static List<Method> candidateMethods(Class<?> type){
+        List<Method> all=methods(type,int.class),privateOnes=new ArrayList<Method>();
+        for(Method m:all)if(Modifier.isPrivate(m.getModifiers()))privateOnes.add(m);
+        return privateOnes.isEmpty()?all:privateOnes;
+    }
+    static List<Method> methods(Class<?> type,Class<?> returns,Class<?>...args){
+        List<Method> found=new ArrayList<Method>();
+        for(Class<?> c=type;c!=null&&c!=Object.class&&c!=Enum.class;c=c.getSuperclass()){
+            for(Method m:c.getDeclaredMethods()){
+                int f=m.getModifiers();
+                if(Modifier.isStatic(f)||Modifier.isAbstract(f)||m.isSynthetic()||m.getReturnType()!=returns||!Arrays.equals(m.getParameterTypes(),args))continue;
+                boolean duplicate=false;for(Method existing:found)if(existing.getName().equals(m.getName())&&Arrays.equals(existing.getParameterTypes(),args)){duplicate=true;break;}
+                if(!duplicate){m.setAccessible(true);found.add(m);}
             }
-        }
-        // A profile that verifies nothing is not a verified profile.
-        if(checkedRoles != ReferenceFanProfile.EVIDENCE.size())
-            bad.add("核对角色数 "+checkedRoles+" 与档案 "+ReferenceFanProfile.EVIDENCE.size()+" 不符");
-        if(checkedRefs == 0) bad.add("没有任何可比对的语义引用");
-        if(!bad.isEmpty()) {
-            step("语义核对不通过的项：" + bad);
-            throw new NoSuchMethodException("保护链语义变化："+bad.get(0)+"；保留原厂");
-        }
-        step("11 处关键方法的语义引用全部吻合（核对角色 "+checkedRoles+"，引用 "+checkedRefs+" 条）");
-        // Instruction hashes: informational only. Equal means identical bytes; different means
-        // "recompiled or patched", which is expected across firmware and must not block alone.
-        try {
-            Map<String,String> hashed=fingerprints(apk);
-            int same=0;
-            for(Map.Entry<String,String> e:ReferenceFanProfile.HASHES.entrySet())
-                if(e.getValue().equals(hashed.get(e.getKey()))) same++;
-            step("字节级比对（仅参考）：" + same + "/" + ReferenceFanProfile.HASHES.size() + " 与参考固件完全相同");
-        } catch (Throwable ignored) {
-            step("字节级比对跳过（不影响语义核对结论）");
-        }
+        }return found;
     }
-
-    Map<String,String> fingerprints(String apk) throws Exception {
-        Map<String,String> roleByKey=new HashMap<String,String>();
-        for(Map.Entry<String,Method> e:evidence.entrySet())roleByKey.put(methodKey(e.getValue()),e.getKey());
-        Map<String,String> raw=DexFingerprint.readApk(apk,roleByKey.keySet(),aliases);
-        Map<String,String> out=new LinkedHashMap<String,String>();
-        for(Map.Entry<String,String> e:raw.entrySet())out.put(roleByKey.get(e.getKey()),e.getValue());
-        return out;
+    private static List<Method> publicMethods(Class<?> c,Class<?> returns,Class<?>...args){
+        List<Method> out=new ArrayList<Method>();for(Method m:methods(c,returns,args))if(Modifier.isPublic(m.getModifiers()))out.add(m);return out;
     }
-
-    /** Diagnostic: which public methods of this shape exist, for reports on unknown firmware. */
-    static String candidates(Class<?> type, Class<?> returns, Class<?>... args) {
-        StringBuilder b = new StringBuilder();
-        for (Method m : type.getDeclaredMethods()) {
-            int flags = m.getModifiers();
-            if (Modifier.isStatic(flags) || m.isSynthetic()) continue;
-            if (m.getReturnType() != returns) continue;
-            if (!Arrays.equals(m.getParameterTypes(), args)) continue;
-            if (b.length() > 0) b.append(", ");
-            b.append(m.getName()).append('(').append(')').append(returns == boolean.class ? "Z" : returns.getSimpleName());
-            if (b.length() > 240) { b.append(", …"); break; }
-        }
-        return b.length() == 0 ? "无" : b.toString();
+    private static Method one(List<Method> list,String role)throws Exception{if(list.size()!=1)throw new NoSuchMethodException(role+" 实际候选数="+list.size()+" "+list);return list.get(0);}
+    private static List<Field> fields(Class<?> type){
+        List<Field> list=new ArrayList<Field>();for(Class<?> c=type;c!=null&&c!=Object.class&&c!=Enum.class;c=c.getSuperclass())list.addAll(Arrays.asList(c.getDeclaredFields()));return list;
     }
-
-    /**
-     * Controller health getter. The reference firmware names it "s", but obfuscation renames
-     * between ROM builds: a uniquely-shaped public boolean getter is an acceptable substitute
-     * because the 11-method code profile still has to match its body before any hook is installed.
-     */
-    private static Method healthMethod(Class<?> ctrl) throws Exception {
-        try {
-            return exact(ctrl, "s", boolean.class, Modifier.PUBLIC);
-        } catch (NoSuchMethodException absent) {
-            step("控制器无 s()Z；同形候选：" + candidates(ctrl, boolean.class));
-            Method found = null;
-            for (Method m : ctrl.getDeclaredMethods()) {
-                int flags = m.getModifiers();
-                if (Modifier.isStatic(flags) || m.isSynthetic()) continue;
-                if (m.getReturnType() != boolean.class || m.getParameterTypes().length != 0) continue;
-                if ((flags & Modifier.PUBLIC) != Modifier.PUBLIC) continue;
-                if (found != null) throw new NoSuchMethodException("ambiguous controller health: "
-                        + found.getName() + " / " + m.getName() + "（该固件需人工确认）");
-                found = m;
-            }
-            if (found == null) throw absent;
-            step("控制器健康方法改名为：" + found.getName());
-            found.setAccessible(true);
+    private static Field optionalField(Class<?> c,String name,Class<?> expected){
+        if(c==null)return null;for(Field f:fields(c))if(f.getName().equals(name)&&!Modifier.isStatic(f.getModifiers())&&(expected==null||f.getType()==expected)){try{f.setAccessible(true);return f;}catch(RuntimeException e){step("可选字段不可访问："+f+" "+summary(e));return null;}}return null;
+    }
+    private static Class<?> optionalClass(ClassLoader l,String n){try{return Class.forName(n,false,l);}catch(ClassNotFoundException e){step("可选类不可用："+n);return null;}}
+    private static Object optionalSingleton(Class<?> c){
+        if(c==null)return null;try{
+            if(c.isEnum()){Object[] all=c.getEnumConstants();if(all.length==1)return all[0];}
+            Object found=null;
+            for(Field f:fields(c))if(Modifier.isStatic(f.getModifiers())&&c.isAssignableFrom(f.getType())){f.setAccessible(true);Object o=f.get(null);if(o!=null){if(found!=null&&found!=o)return null;found=o;}}
             return found;
-        }
+        }catch(Exception e){step("实例读取失败："+c.getName()+" "+summary(e));return null;}
     }
-
-    /**
-     * Resolves a role by its *shape* (return type, access modifiers, parameter types) rather than
-     * by its obfuscated name. R8 picks new single-letter names per build, so requiring "s" or "q"
-     * rejects firmware whose bytecode is semantically identical.
-     *
-     * Uniqueness is still mandatory: if two methods share the shape the role is ambiguous and this
-     * fails, because picking either would be a guess. The preferred name is used only to explain
-     * the outcome, never to select silently.
-     */
-    static Method shape(Class<?> type, Class<?> returns, int required, String preferred, Class<?>... args) throws Exception {
-        Method found=null;
-        for(Method m:type.getDeclaredMethods()) {
-            int flags=m.getModifiers();
-            if(Modifier.isStatic(flags)||m.isSynthetic()||(flags&required)!=required
-                    ||m.getReturnType()!=returns||!Arrays.equals(m.getParameterTypes(),args))continue;
-            if(found!=null)
-                throw new NoSuchMethodException("ambiguous "+type.getName()+" "+returns.getName()
-                        +Arrays.toString(args)+"（"+found.getName()+" / "+m.getName()+"；该固件需人工确认）");
-            found=m;
-        }
-        if(found==null) {
-            step(type.getSimpleName()+" 缺少形状 "+returns.getSimpleName()+Arrays.toString(args)
-                    +"（原候选 "+preferred+"）；现有同形候选：无");
-            throw new NoSuchMethodException("missing shape "+type.getName()+" "+Arrays.toString(args));
-        }
-        if(!preferred.equals(found.getName())) step(type.getSimpleName()+"."+preferred+" 已改名为 "+found.getName()+"（形状唯一，继续）");
-        found.setAccessible(true); return found;
-    }
-
-    /** Signature-only fallback is allowed only where unique; code evidence is still mandatory. */
-    static Method uniqueMethod(Class<?> type, Class<?> returns, int required, String preferred, Class<?>... args) throws Exception {
-        Method found=null;
-        for(Method m:type.getDeclaredMethods()) {
-            int flags=m.getModifiers();
-            if(Modifier.isStatic(flags)||m.isSynthetic()||(flags&required)!=required||m.getReturnType()!=returns||!Arrays.equals(m.getParameterTypes(),args))continue;
-            if(found!=null)throw new NoSuchMethodException("ambiguous "+type.getName()+" "+returns.getName()+Arrays.toString(args));
-            found=m;
-        }
-        if(found==null)throw new NoSuchMethodException("missing "+type.getName()+"."+preferred);
-        found.setAccessible(true); return found;
-    }
-    private static Method exact(Class<?> type,String name,Class<?> returns,int required,Class<?>...args)throws Exception {
-        Method m=type.getDeclaredMethod(name,args); int flags=m.getModifiers();
-        if(Modifier.isStatic(flags)||m.isSynthetic()||(flags&required)!=required||m.getReturnType()!=returns)
-            throw new NoSuchMethodException("changed "+type.getName()+"."+name);
-        m.setAccessible(true);return m;
-    }
-    private static Field field(Class<?> type,String name,Class<?> expected)throws Exception {
-        Field f=type.getDeclaredField(name);
-        if(Modifier.isStatic(f.getModifiers()) || (expected!=null&&f.getType()!=expected))throw new NoSuchFieldException("changed "+name);
-        f.setAccessible(true);return f;
-    }
-    private static Object singleton(Class<?> type)throws Exception {
-        if(!type.isEnum())throw new NoSuchFieldException("not singleton enum: "+type.getName());
-        Object[] all=type.getEnumConstants();
-        if(all.length!=1)throw new NoSuchFieldException("ambiguous singleton: "+type.getName());
-        return all[0];
-    }
-    static String descriptor(Class<?> c) {
-        if(c==void.class)return "V";if(c==int.class)return "I";if(c==boolean.class)return "Z";
-        if(c==byte.class)return "B";if(c==short.class)return "S";if(c==char.class)return "C";
-        if(c==long.class)return "J";if(c==float.class)return "F";if(c==double.class)return "D";
-        return c.isArray()?c.getName().replace('.','/'):"L"+c.getName().replace('.','/')+";";
-    }
-    static String methodKey(Method m) {
-        StringBuilder b=new StringBuilder(descriptor(m.getDeclaringClass())).append("->").append(m.getName()).append('(');
-        for(Class<?> c:m.getParameterTypes())b.append(descriptor(c));
-        return b.append(')').append(descriptor(m.getReturnType())).toString();
-    }
-    private static String fieldKey(Field f){return descriptor(f.getDeclaringClass())+"->"+f.getName()+":"+descriptor(f.getType());}
+    public static String methodKey(Method m){return m.getDeclaringClass().getName()+"."+m.getName()+Arrays.toString(m.getParameterTypes())+"→"+m.getReturnType().getSimpleName();}
+    private static String inventory(Class<?> c){String s=Arrays.toString(c.getDeclaredMethods());return s.length()>700?s.substring(0,700):s;}
+    private static String fieldInventory(Class<?> c){String s=fields(c).toString();return s.length()>500?s.substring(0,500):s;}
 }

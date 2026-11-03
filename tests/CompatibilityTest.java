@@ -1,63 +1,65 @@
 package dev.eta.acefan;
 
-/** Synthetic schemas, not extra real firmware samples. */
+/** Direct interface invocation fixtures. These are not extra real firmware samples. */
 public final class CompatibilityTest {
-    interface Action { void run() throws Exception; }
     static int checks;
     static void ok(boolean b){checks++;if(!b)throw new AssertionError("check "+checks);}
-    static void rejects(Action a)throws Exception {checks++;try{a.run();}catch(ReflectiveOperationException expected){return;}throw new AssertionError("must reject "+checks);}
-    static class Ctx { } static class Hdl { }
-    enum Strategy {
-        A("Common"),B("KeyguardLocked"),C("ChargeWhileKeyguardLocked"),D("SuperCharging"),E("ShutDown"),F("PocketMode"),G("TelephonyInHeld");
-        private final String label;Strategy(String s){label=s;}public String b(){return label;}
+    interface Action{void run()throws Exception;}
+    static void failsAt(String stage,Action a)throws Exception{
+        checks++;try{a.run();}catch(ReflectiveOperationException e){if(!FanServiceCompat.stageOf(e).equals(stage))throw new AssertionError(e);return;}throw new AssertionError("expected stage "+stage);
     }
-    static class Selector { Strategy g(){return Strategy.A;} boolean i(){return true;} void j(){} }
-    static abstract class Base { final Selector renamed=new Selector(); public void f(String s){} public void b(){} }
-    static class V3 extends Base { V3(Ctx c,Hdl h){} private int renamedCandidate(){return 0;} protected void c(){} private int s(int i){return i;} }
-    static class Ambiguous extends Base { Ambiguous(Ctx c,Hdl h){} private int q(){return 0;} private int other(){return 0;} protected void c(){} private int s(int i){return i;} }
-    static class MissingProtection extends Base { MissingProtection(Ctx c,Hdl h){} private int q(){return 0;} protected void c(){} }
-    enum Engine {
-        INSTANCE;
-        Base mOrchestrator=new V3(new Ctx(),new Hdl());
-        public void renamedInit(Ctx c,Hdl h){} private synchronized void renamedRefresh(String s){}
-    }
-    enum Controller { INSTANCE; private boolean mCurrentSpeedLevelUpdated; private int mLastUEvent; public void i(int i){} public boolean s(){return true;} public boolean r(){return false;} }
-    enum Config { INSTANCE; public int renamedMax(){return 20;} }
-    enum BadController { INSTANCE; private int mCurrentSpeedLevelUpdated; private int mLastUEvent; public void i(int i){} public boolean s(){return true;} }
-    /** Health getter renamed by obfuscation: shape is unique, so it must still resolve. */
-    enum RenamedHealth { INSTANCE; private boolean mCurrentSpeedLevelUpdated; private int mLastUEvent; public void i(int i){} public boolean r(){return true;} }
-    /** Two same-shaped boolean getters and no s(): picking either would be a guess, so reject. */
-    enum AmbiguousHealth { INSTANCE; private boolean mCurrentSpeedLevelUpdated; private int mLastUEvent; public void i(int i){} public boolean r(){return true;} public boolean t(){return false;} }
-    static FanServiceCompat resolve(FanServiceCompat.Bootstrap b,Class<?> controller)throws Exception {
-        return FanServiceCompat.resolve(b,Engine.INSTANCE,controller,Config.class,Strategy.class,Ctx.class,Hdl.class);
-    }
-    public static void main(String[] args)throws Exception {
-        ok(CompatibilityCatalog.hardwareSupported("PMS110","OP64F1L1"));
-        ok(!CompatibilityCatalog.hardwareSupported("PMS110","unknown"));
-        ok(!CompatibilityCatalog.hardwareSupported("other","OP64F1L1"));
-        ok(!CompatibilityCatalog.bridgeSupported(81));ok(CompatibilityCatalog.bridgeSupported(82));
-        ok(CompatibilityCatalog.bridgeSupported(93));ok(CompatibilityCatalog.bridgeSupported(100));ok(CompatibilityCatalog.bridgeSupported(102));
-        FanServiceCompat.Bootstrap boot=FanServiceCompat.bootstrap(Engine.class,Ctx.class,Hdl.class);
-        FanServiceCompat good=resolve(boot,Controller.class);
-        ok(good.candidate.getName().equals("renamedCandidate"));
-        ok(good.choice.getName().equals("renamed"));ok(good.evidence.size()==11);
-        rejects(()->resolve(boot,BadController.class));
-        FanServiceCompat renamed=resolve(boot,RenamedHealth.class);
-        ok(renamed.healthy.getName().equals("r"));
-        ok(renamed.evidence.get("controllerHealth").getName().equals("r"));
-        rejects(()->resolve(boot,AmbiguousHealth.class));
-        Engine.INSTANCE.mOrchestrator=new Ambiguous(new Ctx(),new Hdl());rejects(()->resolve(boot,Controller.class));
-        Engine.INSTANCE.mOrchestrator=new MissingProtection(new Ctx(),new Hdl());rejects(()->resolve(boot,Controller.class));
-        Engine.INSTANCE.mOrchestrator=null;rejects(()->resolve(boot,Controller.class));
-        long now=1_800_000_000_000L, elapsed=100000;
-        String boot1="11111111-1111-1111-1111-111111111111",boot2="22222222-2222-2222-2222-222222222222";
-        ok(ReportFreshness.fresh(now-30000,elapsed-30000,now,elapsed,boot1,boot1,65000));
-        ok(!ReportFreshness.fresh(now-30000,elapsed-30000,now,elapsed,boot1,boot2,65000));
-        ok(!ReportFreshness.fresh(now-66000,elapsed-66000,now,elapsed,boot1,boot1,65000));
-        ok(!ReportFreshness.fresh(now-1000,elapsed+1000,now,elapsed,boot1,boot1,65000));
-        ok(!ReportFreshness.fresh(now+1000,elapsed-1000,now,elapsed,boot1,boot1,65000));
-        ok(!ReportFreshness.fresh(now-50000,elapsed-1000,now,elapsed,boot1,boot1,65000));
-        ok(CompatibilityCatalog.describe().contains("不是本模块的风扇实测范围"));
-        System.out.println("Compatibility: "+checks+" hardware/API/schema/freshness/claim checks PASS (synthetic fixtures)");
+    static class Ctx{} static class Hdl{}
+    // No full reference enum set, no selector enabled/update methods, no noise method.
+    enum Strategy{A;public String changedName(){return "Common";}}
+    static class Selector{Strategy renamed(){return Strategy.A;}}
+    static class Base{Selector choice=new Selector();}
+    static class V3 extends Base{private int candidateRenamed(){return 6;}}
+    static class Multiple extends Base{private int candidateRenamed(){return 6;}private int unrelated(){return 2;}}
+    // Engine and controller need not be enum singletons.
+    static class Engine{Object mOrchestrator=new V3();public void initialize(Ctx c,Hdl h){}private void recompute(String s){}}
+    enum Controller{ONE;private boolean mCurrentSpeedLevelUpdated=true;private int mLastUEvent=2,mCurrentSpeedLevel=12;public void request(int n){mCurrentSpeedLevel=n;}public boolean a(){return true;}public boolean b(){return false;}}
+    enum RenamedHealth{ONE;private int mLastUEvent=2;public void request(int n){}public boolean r(){return true;}public boolean t(){return false;}}
+    enum BadOptional{ONE;private int mCurrentSpeedLevelUpdated;public boolean r(){return true;}}
+    enum Config{ONE;private int mSpeedLevelMax=30;public int extra(){return 100;}public int changedMax(){return mSpeedLevelMax;}}
+    enum GetterOnly{ONE;public int renamed(){return 20;}}
+    enum NotReady{ONE;private int mSpeedLevelMax=0;}
+    static FanServiceCompat resolve(FanServiceCompat.Bootstrap b,Engine e,Class<?> c,Class<?> config)throws Exception{return FanServiceCompat.resolve(b,e,c,config,Strategy.class,Ctx.class,Hdl.class);}
+    public static void main(String[] args)throws Exception{
+        ok(CompatibilityCatalog.hardwareSupported("PMS110","changed-device"));
+        ok(CompatibilityCatalog.hardwareSupported("unlisted-model","other","一加 Ace 7 Pro"));
+        ok(CompatibilityCatalog.hardwareSupported("OnePlus ACE7","other",""));
+        ok(CompatibilityCatalog.hardwareSupported("other","other","OnePlus Ace 7T"));
+        ok(!CompatibilityCatalog.hardwareSupported("other","OP64F1L1",""));
+        ok(!CompatibilityCatalog.hardwareSupported("other","other","Ace 70 Pro"));
+        ok(CompatibilityCatalog.hardwareSupported("other","other","一加 Ace7V"));
+        ok(!CompatibilityCatalog.hardwareSupported("other","other","OnePlus Ace 6"));
+        ok(!CompatibilityCatalog.bridgeSupported(81));ok(CompatibilityCatalog.bridgeSupported(82));ok(CompatibilityCatalog.bridgeSupported(100));
+        Engine e=new Engine();FanServiceCompat.Bootstrap boot=FanServiceCompat.bootstrap(Engine.class,Ctx.class,Hdl.class);
+        FanServiceCompat f=resolve(boot,e,Controller.class,Config.class);
+        ok(f.candidates.size()==1);ok(f.candidates.get(0).getName().equals("candidateRenamed"));
+        ok(((Integer)f.candidates.get(0).invoke(f.orchestratorObject))==6);
+        ok(f.readStrategy().equals("Common"));ok(f.readMaximum()==30); // No old <=20 gate.
+        ok(f.event()==2);ok(Boolean.TRUE.equals(f.confirmed(f.controller)));ok(f.level(f.controller)==12);
+        f.setters.get(0).invoke(f.controller,18);ok(f.level(f.controller)==18);
+        // Ambiguous/renamed health getters never prevent interface use; we don't invoke them.
+        FanServiceCompat renamed=resolve(boot,e,RenamedHealth.class,Config.class);ok(renamed.readMaximum()==30);ok(renamed.event()==2);
+        FanServiceCompat partial=resolve(boot,e,BadOptional.class,Config.class);
+        ok(partial.updated==null);ok(partial.event()==null);ok(partial.setters.isEmpty());ok(partial.readMaximum()==30);ok(partial.readStrategy().equals("Common"));
+        FanServiceCompat absent=resolve(boot,e,null,GetterOnly.class);ok(absent.controller==null);ok(absent.readMaximum()==20);
+        FanServiceCompat noConfig=resolve(boot,e,Controller.class,null);ok(noConfig.candidates.size()==1);
+        checks++;try{noConfig.readMaximum();throw new AssertionError("must report missing config");}catch(NoSuchFieldException expected){}
+        FanServiceCompat waiting=resolve(boot,e,Controller.class,NotReady.class);
+        checks++;try{waiting.readMaximum();throw new AssertionError("zero isn't ready");}catch(IllegalStateException expected){}
+        NotReady.ONE.mSpeedLevelMax=16;ok(waiting.readMaximum()==16); // Natural retry after configuration becomes ready.
+        e.mOrchestrator=new Multiple();ok(resolve(boot,e,Controller.class,Config.class).candidates.size()==2);
+        e.mOrchestrator=null;failsAt("读取编排器实例",()->resolve(boot,e,Controller.class,Config.class));
+        e.mOrchestrator=new V3();failsAt("当前场景读取",()->FanServiceCompat.resolve(boot,e,Controller.class,Config.class,null,Ctx.class,Hdl.class));
+        ok(FanServiceCompat.allowedScene("Common"));ok(!FanServiceCompat.allowedScene("PocketMode"));ok(!FanServiceCompat.allowedScene("new-unknown"));
+        long now=1_800_000_000_000L,elapsed=100000;
+        String b1="11111111-1111-1111-1111-111111111111",b2="22222222-2222-2222-2222-222222222222";
+        ok(ReportFreshness.fresh(now-30000,elapsed-30000,now,elapsed,b1,b1,65000));
+        ok(!ReportFreshness.fresh(now-30000,elapsed-30000,now,elapsed,b1,b2,65000));
+        ok(!ReportFreshness.fresh(now-66000,elapsed-66000,now,elapsed,b1,b1,65000));
+        System.out.println("Compatibility: "+checks+" direct invocation / partial capabilities / live readiness / family checks PASS (synthetic)");
     }
 }

@@ -1,41 +1,39 @@
 package dev.eta.acefan;
 
-/** Compatibility claims, not a list of devices/versions that have all been tested. */
+/** Device-family scope and runtime facts, without firmware whitelists. */
 public final class CompatibilityCatalog {
-    public static final int MIN_XPOSED_API = 82;
-    public static final String KNOWN_APK_SHA256 = "3eeee6cd69d22fad8ddf6b341c54128ca9c0fb505c6e24ce85ffdd2ef780544c";
-
-    private CompatibilityCatalog() { }
-
-    public static boolean hardwareSupported(String model, String device) {
-        return "PMS110".equals(model) && "OP64F1L1".equals(device);
+    public static final int MIN_XPOSED_API=82;
+    private CompatibilityCatalog(){}
+    public static boolean hardwareSupported(String model,String device){return hardwareSupported(model,device,"");}
+    public static boolean hardwareSupported(String model,String device,String market){
+        if("PMS110".equalsIgnoreCase(model))return true;
+        return ace7(model)||ace7(market);
     }
-
-    public static boolean bridgeSupported(int api) { return api >= MIN_XPOSED_API; }
-
-    public static String statusLabel(String status) {
-        if ("known-firmware".equals(status)) return "已识别参考固件";
-        if ("interface-matched".equals(status)) return "接口匹配 · 待实测";
-        if ("pending".equals(status)) return "等待原厂风扇初始化";
-        if ("unsupported".equals(status)) return "接口不支持 · 仅观测";
-        if ("runtime-error".equals(status)) return "运行异常 · 已交还原厂";
-        return "尚未取得版本兼容诊断";
+    private static boolean ace7(String value){
+        if(value==null)return false;
+        return java.util.regex.Pattern.compile("(?i)(?:^|[^a-z0-9])ace[ _-]*7(?![0-9])(?:$|[^a-z0-9]|pro(?:$|[^a-z0-9])|t(?:$|[^a-z0-9])|v(?:$|[^a-z0-9]))").matcher(value).find();
     }
-
-    public static String describe() {
-        return "系统版本\n"
-                + "安装/观测：Android 9 及以上（minSdk 28），不再将 Android 17/SDK 37 作为增强的唯一入口。\n"
-                + "增强：仍限定 ACE7pro PMS110 / OP64F1L1；原厂 Oplus 风扇 V3 的候选、选择器、控制器、初始化及重算接口须完整匹配。系统版本号本身不能证明适配；AOSP、移除原厂服务或接口变化时仅观测。\n"
-                + "参考样本：PMS110_17.0.0.159(CN01)，Android 17 / SDK 37，OplusExSystemService 1.4.6。旧版模块已有注入/遥测记录；本版仍需重载与功能复测。其他系统版本暂无真实固件样本，不能列为已实测。\n\n"
-                + "LSPosed / Xposed 版本\n"
-                + "模块入口使用传统 Xposed API ≥82，不依赖 modern libxposed API，也不按分支版本号硬封锁。仅提供 modern API、不兼容传统模块的框架不支持。\n"
-                + "• 官方 LSPosed 1.8.6：上游声明 Android 8.1–13，传统模块候选。\n"
-                + "• 官方 LSPosed 1.9.2：上游声明 Android 8.1–14，传统模块候选。不要将其用在 Android 17 上。\n"
-                + "• JingMatrix LSPosed 1.10.2：上游声明 Android 8.1–16，传统模块候选。\n"
-                + "• JingMatrix Vector 2.x：上游声明传统/现代 API 兼容，当前 README 范围到 Android 17 Beta；不同发布版须核对其发行说明。\n"
-                + "• 开发参考机 LSPosed 2.2.1 (7912)：2026-11-03 已取得旧版模块注入/遥测证据，不等于已验收新版本或所有同号分支。\n\n"
-                + "上述 Android 范围是框架上游声明，不是本模块的风扇实测范围。框架必须首先支持你的 Android；API 数字不是 LSPosed 的 1.x/2.x 版本号。Manager 的版本也不等于正在运行的框架版本。独立/寄生/改包名管理器不改变模块接口要求。\n\n"
-                + "使用条件不变：息屏有线充电、原厂自动模式；锁屏衔接及解锁后 2 秒交还保持原样。不增加亮屏、无线或其他控制场景，不绕过原厂保护。\n\n"
-                + "来源与完整验证边界见随包 COMPATIBILITY.md。";
+    public static boolean bridgeSupported(int api){return api>=MIN_XPOSED_API;}
+    public static String statusLabel(String status){
+        if("ready".equals(status))return "接口已接入 · 等待真实场景";
+        if("attempted".equals(status))return "候选已应用 · 等待控制反馈";
+        if("request-observed".equals(status))return "原厂控制调用完成";
+        if("confirmed".equals(status))return "原厂状态已确认 · 非物理转速";
+        if("setup-failed".equals(status))return "接口接入失败 · 可导出详情";
+        if("outside-family".equals(status))return "ACE 7 系列以外 · 仅观测";
+        if("known-firmware".equals(status))return "旧版参考固件结论 · 请重载";
+        if("interface-matched".equals(status))return "旧版接口匹配 · 待实测";
+        if("pending".equals(status))return "等待原厂风扇初始化";
+        if("unsupported".equals(status))return "旧版接口未接入 · 见失败详情";
+        if("runtime-error".equals(status))return "运行环节异常 · 见失败详情";
+        return "尚未取得运行诊断";
+    }
+    public static String describe(){
+        return "适配范围：一加 ACE 7 系列。读取型号、市场名称和原厂服务实际接口；系统版本号、APK 哈希和方法指纹均不是启动门槛。\n\n"
+            +"检测流程：原厂初始化 → 实际对象及接口解析 → 上限/场景实读 → 安装候选层 Hook → 正常场景中的候选应用 → 同轮原厂控制反馈。未触发场景表示等待，不能判定不能用。\n\n"
+            +"独立记录：候选入口、场景读取、档位上限、健康状态、控制观察、原厂重算。可选读取失败不全局熔断；本次必要读取失败保留本次原厂结果，下次调用继续。\n\n"
+            +"失败反馈：设备兼容报告包含接口成员、实际值、调用/失败次数、失败环节、异常和时间（开机后毫秒）。复制、分享或保存完整报告后发给开发者。App 无网络权限，不自动上传。\n\n"
+            +"增强条件保持息屏有线充电、原厂自动模式；已确认会话可锁屏衔接，解锁后最多 2 秒交还。保留原厂下游处理，不写风扇/温控节点。\n\n"
+            +"Android 9+；传统 Xposed API ≥82。框架须兼容当前系统；运行框架与 Manager 版本分开显示。接口加载、候选应用、控制反馈与物理效果分别记录，不是多 ROM 实测承诺。";
     }
 }
