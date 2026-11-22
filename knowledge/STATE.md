@@ -7,7 +7,9 @@
 - 排障实读：旧 Hook `0.6.1-daily-backend` 已注入，日用 v0–v2 均回报关闭，无配置读取异常。保存的 v2 为 `36 °C / 10 档 / 1:0:0:0`，只计算电池；采样融合温度低于门槛。保存参数不等于启用，原厂 0 档也不会被强制抬高。这不能证明用户点过开关或曾在已启用、达温时失效。
 - 修复版可显式「保存并开启」，普通保存不动开关；区分配置同步、未达温、原厂停转和控制反馈，标明融合参与通道。Hook `0.6.2-daily-feedback` 改进日用回传和决策时点，不改原厂正档前提和充电策略。47 项 Python、10 组 Java（含日用 620 条断言）、Compose 编译、AGP Release/lintVital、unsigned/v3 APK 审计通过。日志 `build/0.7.1-verify.log`、`build/0.7.1-build.log`。
 - 实机用户 0 于 15:32:08 UTC+8 同签名安装 `dev.eta.acefan` App `0.7.1-fusion-fix` / versionCode 18；回读 APK SHA256 `fb0e35a874ca74af589ef2fec34bf923926a8ec16d3e8cc695be30554ffe4e87`。安装前后 Provider 日用和充电设置一致，原厂 PID 未变；未卸载、清数据、重启或改作用域。虚拟屏确认概览参与通道、设置关闭状态和编辑两种保存按钮；未点击启用。运行仍为旧 Hook，App 提示待重载，未验收新版 Hook 正候选抬档或驱动效果。
-- APK 与回读校验清单位于 `Download/eta/工作区产物/ace7pro-fan/0.7.1-fusion-fix/`。源码基线 `baff141`，更新仅在本地工作树，未提交、推送或云端发布。
+- APK 与回读校验清单位于 `Download/eta/工作区产物/ace7pro-fan/0.7.1-fusion-fix/`。源码基线 `baff141`。
+- **2026-11-23 已发布源码**：同一快照提交 `8eb4376a8a8db5d15e2f9e144402509354e48020` 并推送 `main`，tag `v0.7.1-fusion-fix` 已推。云端 unsigned 构建成功（APK SHA256 `2772e4d5971bcb7819f2ca1592eb09a02a53c234bb4d3101e6d9be0be498e599`），产物已作为 prerelease `v0.7.1-fusion-fix` 发布，明确标注 unsigned、不可覆盖安装。
+- **签名未完成**：云端签名 job 失败关闭——`release-signing` Secrets 仍是 0.3.x 的 `e397…98d9`，与 `project.json` 现钉的 `2623…808d` 不一致。本机没有 `pilot.jks`（11-22 源码包排除了 `build-tools/`），因此在取得该密钥前无法产出与手机 0.7.1 同签名、可直接覆盖安装的包。
 
 ## 0.7.0-miuix 本地交付（2026-11-22）
 
