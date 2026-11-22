@@ -19,12 +19,13 @@ import sys
 import tempfile
 from urllib.parse import unquote, urlsplit
 from xml.etree import ElementTree as ET
-from zipfile import ZipFile
+from zipfile import BadZipFile, ZipFile
 
 ROOT = Path(__file__).resolve().parents[1]
 ANDROID = '{http://schemas.android.com/apk/res/android}'
+TOOLS = '{http://schemas.android.com/tools}'
 MAX_BLOB = 4 * 1024 * 1024
-TEXT_SUFFIXES = {'.java', '.py', '.sh', '.json', '.xml', '.md', '.yml', '.yaml', '.txt', '.html', '.toml', '.properties'}
+TEXT_SUFFIXES = {'.java', '.kt', '.kts', '.py', '.sh', '.json', '.xml', '.md', '.yml', '.yaml', '.txt', '.html', '.toml', '.properties'}
 SECRET_PATTERNS = (
     re.compile(rb'-----BEGIN (?:RSA |EC |OPENSSH |DSA )?PRIVATE KEY-----'),
     re.compile(rb'\b(?:ghp_|github_pat_|sk-(?:proj-)?)[A-Za-z0-9_-]{24,}\b'),
@@ -94,10 +95,10 @@ def forbidden_path(name):
     parts = [x.lower() for x in p.parts]
     if p.is_absolute() or '..' in parts:
         return True
-    if any(x in {'build', 'build-tools', 'dist', 'private', 'local', '__pycache__', '.git', '.venv'} for x in parts):
+    if any(x in {'build', 'build-tools', 'dist', 'private', 'local', '__pycache__', '.git', '.venv', '.gradle', '.kotlin'} for x in parts):
         return True
     base = p.name.lower()
-    if base == '.env' or base.startswith('.env.') or base in {'pass.txt', 'credentials.json', 'secrets.json'}:
+    if base == '.env' or base.startswith('.env.') or base in {'pass.txt', 'credentials.json', 'secrets.json', 'local.properties'}:
         return True
     if base.endswith(('.apk', '.aab', '.dex', '.class', '.jks', '.keystore', '.p12', '.pfx', '.pem', '.key',
                       '.db', '.db-wal', '.db-shm', '.sqlite', '.sqlite3', '.log', '.pyc', '.zip', '.tar.gz', '.tgz')):
@@ -131,11 +132,14 @@ def metadata(read, config):
     values['version_code'] = int(manifest.get(ANDROID + 'versionCode', '0'))
     if values['version_code'] <= 0:
         raise ProjectError('versionCode must be positive')
+    # AGP 9 supplies SDK values from project.json, not <uses-sdk> in the source manifest.
+    # Still validate explicit values if inspecting a legacy source snapshot.
     sdk = manifest.find('uses-sdk')
     for name, key in (('minSdkVersion', 'min_sdk'), ('targetSdkVersion', 'target_sdk')):
-        if sdk is None or int(sdk.get(ANDROID + name, '0')) != config[key]:
+        if sdk is not None and ANDROID + name in sdk.attrib and int(sdk.get(ANDROID + name)) != config[key]:
             raise ProjectError(f'unexpected {name}')
-    permissions = sorted(e.get(ANDROID + 'name') for e in manifest if e.tag.startswith('uses-permission'))
+    permissions = sorted(e.get(ANDROID + 'name') for e in manifest
+                         if e.tag.startswith('uses-permission') and e.get(TOOLS + 'node') != 'remove')
     if permissions != sorted(config['allowed_permissions']):
         raise ProjectError('requested permissions differ from project contract')
     application = manifest.find('application')
@@ -144,6 +148,10 @@ def metadata(read, config):
     metas = {e.get(ANDROID + 'name'): e.get(ANDROID + 'value') for e in application.findall('meta-data')}
     if metas.get('xposedmodule') != 'true' or int(metas.get('xposedminversion', '0')) != config['xposed_min_api']:
         raise ProjectError('Xposed module metadata differs from contract')
+    scope_refs = [e.get(ANDROID + 'resource') for e in application.findall('meta-data')
+                  if e.get(ANDROID + 'name') == 'xposedscope']
+    if scope_refs != ['@array/xposed_scope']:
+        raise ProjectError('Xposed scope metadata must reference @array/xposed_scope')
     if read('assets/xposed_init').decode().strip() != config['xposed_entry']:
         raise ProjectError('unexpected Xposed entry')
     arrays = ET.fromstring(read('res/values/arrays.xml'))
@@ -233,28 +241,35 @@ def check(snapshot, quiet=False):
     return cfg, version
 
 
+def java_executable():
+    java_home = os.environ.get('JAVA_HOME')
+    return str(Path(java_home) / 'bin/java') if java_home else 'java'
+
+
 def doctor(root=ROOT, require_build=False):
-    required = ['git', 'python3', 'java', 'javac', 'jar', 'aapt', 'zipalign', 'sh']
-    dependencies = ['build-tools/lib/xposed-api-82.jar', 'build-tools/lib/r8.jar',
-                    'build-tools/platforms/android-35/android.jar', 'build-tools/platforms/android-28/android.jar',
-                    'build-tools/apksigner-extracted/usr/share/java/apksigner-35.0.2.jar']
+    sdk = os.environ.get('ANDROID_HOME') or os.environ.get('ANDROID_SDK_ROOT')
+    required = {
+        **{name: shutil.which(name) for name in ('git', 'python3', 'javac', 'zipalign', 'sh')},
+        'Gradle 9.7.1 launcher (ACEFAN_GRADLE or PATH)': shutil.which(os.environ.get('ACEFAN_GRADLE') or 'gradle'),
+        'JDK 25 launcher (JAVA_HOME or PATH)': shutil.which(java_executable()),
+        'SDK platform 37.2 (ANDROID_HOME)': sdk and (Path(sdk) / 'platforms/android-37.2/android.jar').is_file(),
+        'SDK build-tools 36.0.0 (ANDROID_HOME)': sdk and (Path(sdk) / 'build-tools/36.0.0/source.properties').is_file(),
+    }
+    for name in ('build-tools/lib/xposed-api-82.jar', 'build-tools/lib/apksigner.jar', 'build-tools/bin/aapt2'):
+        required[name] = (root / name).is_file()
     missing = []
-    for name in required:
-        found = shutil.which(name)
-        print(('OK   ' if found else 'MISS ') + name)
-        if not found:
-            missing.append(name)
-    for name in dependencies:
-        found = (root / name).is_file()
+    for name, found in required.items():
         print(('OK   ' if found else 'MISS ') + name)
         if not found:
             missing.append(name)
     signing_missing = []
-    for name in ['build-tools/keys/pilot.jks', 'build-tools/keys/pass.txt']:
-        found = (root / name).is_file()
-        print(('OK   ' if found else 'MISS ') + name + ' (presence only; not read or printed)')
-        if not found:
-            signing_missing.append(name)
+    if not require_build:
+        for variable, fallback in [('ACEFAN_KEYSTORE_PATH', 'build-tools/keys/pilot.jks'),
+                                   ('ACEFAN_PASSWORD_PATH', 'build-tools/keys/pass.txt')]:
+            found = (root / (os.environ.get(variable) or fallback)).is_file()
+            print(('OK   ' if found else 'MISS ') + variable + ' (presence only; not read or printed)')
+            if not found:
+                signing_missing.append(variable)
     reference = (root / 'build/compat-fixtures/reference.apk').is_file()
     print('OEM reference: ' + ('historical sample available locally; default tests use live-interface fixtures' if reference else 'absent; not required for runtime interface tests'))
     if missing and require_build:
@@ -267,17 +282,43 @@ def test(root=ROOT):
     run(['sh', 'tests/run.sh'], root)
 
 
+def compose_launcher(cfg):
+    return cfg['package_name'] + '.MiuixActivity'
+
+
 def verify(root=ROOT):
     cfg, version = check(Snapshot(root))
     doctor(root, require_build=True)
     test(root)
-    build = root / 'build'; build.mkdir(exist_ok=True)
-    with tempfile.TemporaryDirectory(prefix='project-compile-', dir=build) as temporary:
-        sources = sorted(str(p.relative_to(root)) for p in (root / 'src').rglob('*.java'))
-        run(['javac', '--release', '8', '-encoding', 'UTF-8', '-Xlint:-options', '-classpath',
-             'build-tools/platforms/android-35/android.jar:build-tools/lib/xposed-api-82.jar',
-             '-d', temporary, *sources], root)
-    print('PASS verify: static gates + management/Java tests + all Android sources compile. No installation or physical validation.')
+    if not any((root / 'frontend/src').rglob('*.kt')):
+        raise ProjectError('Compose Kotlin sources missing from frontend/src; refusing Java-only verification')
+    manifest = ET.parse(root / 'AndroidManifest.xml').getroot()
+    launchers = []
+    for entry in manifest.find('application'):
+        if entry.tag not in ('activity', 'activity-alias'):
+            continue
+        for filt in entry.findall('intent-filter'):
+            actions = [e.get(ANDROID + 'name') for e in filt.findall('action')]
+            categories = [e.get(ANDROID + 'name') for e in filt.findall('category')]
+            if 'android.intent.action.MAIN' in actions and 'android.intent.category.LAUNCHER' in categories:
+                name = entry.get(ANDROID + 'name', '')
+                launchers.append(cfg['package_name'] + name if name.startswith('.') else name)
+    if launchers != [compose_launcher(cfg)]:
+        raise ProjectError('expected MiuixActivity as the sole source launcher')
+    run(['sh', 'tools/gradle-build.sh', '--offline', ':compileReleaseKotlin', ':compileReleaseJavaWithJavac',
+         ':processReleaseMainManifest'], root)
+    kotlin_classes = root / 'build/intermediates/built_in_kotlinc/release/compileReleaseKotlin/classes'
+    if not (kotlin_classes / (compose_launcher(cfg).replace('.', '/') + '.class')).is_file():
+        raise ProjectError('Kotlin compiler did not produce MiuixActivity.class')
+    manifest = ET.parse(root / 'build/intermediates/merged_manifest/release/processReleaseMainManifest/AndroidManifest.xml').getroot()
+    sdk = manifest.find('uses-sdk')
+    for name, key in [('minSdkVersion', 'min_sdk'), ('targetSdkVersion', 'target_sdk')]:
+        if sdk is None or sdk.get(ANDROID + name) != str(cfg[key]):
+            raise ProjectError(f'merged manifest {name} differs from contract')
+    permissions = sorted(e.get(ANDROID + 'name') for e in manifest if e.tag.startswith('uses-permission'))
+    if permissions != sorted(cfg['allowed_permissions']):
+        raise ProjectError('merged manifest permissions differ from project contract')
+    print('PASS verify: static gates + management/pure Java tests + offline Compose Android compilation. No signing, APK assembly or install.')
     return cfg, version
 
 
@@ -325,39 +366,103 @@ def dex_defined_classes(data):
 
 
 def audit_zip(apk):
+    """Check every APK DEX, including any code or API classes beyond classes.dex."""
     with ZipFile(apk) as archive:
         if archive.testzip():
             raise ProjectError('APK ZIP integrity failure')
         names = archive.namelist()
         if len(names) != len(set(names)):
             raise ProjectError('duplicate APK entries')
-        if archive.read('assets/xposed_init').strip() != b'dev.eta.acefan.FanHook':
+        if 'assets/xposed_init' not in names or archive.read('assets/xposed_init').strip() != b'dev.eta.acefan.FanHook':
             raise ProjectError('APK Xposed entry mismatch')
-        definitions, dex_count = [], 0
+        definitions, dex_counts = set(), {}
         for item in archive.infolist():
-            if item.filename.startswith('/') or '..' in PurePosixPath(item.filename).parts:
+            name = item.filename
+            if name.startswith('/') or '..' in PurePosixPath(name).parts:
                 raise ProjectError('unsafe APK entry path')
-            if item.filename.endswith(('.jks', '.keystore', '.pem', '.key', '.apk', '.py')) or item.filename.startswith(('build-tools/', 'tests/', 'private/')):
+            if name.endswith(('.jks', '.keystore', '.pem', '.key', '.apk', '.py')) or name.startswith(('build-tools/', 'tests/', 'private/')):
                 raise ProjectError('private/test payload in APK')
-            if re.fullmatch(r'classes(?:[2-9]|[1-9][0-9]+)?\.dex', item.filename):
-                if item.file_size > 64 * 1024 * 1024:
-                    raise ProjectError('DEX audit budget')
-                definitions.extend(dex_defined_classes(archive.read(item)))
-                dex_count += 1
-        if not dex_count:
+            if not name.lower().endswith('.dex'):
+                continue
+            if not re.fullmatch(r'classes(?:[2-9]|[1-9][0-9]+)?\.dex', name):
+                raise ProjectError(f'unexpected DEX entry: {name}')
+            if item.file_size > 64 * 1024 * 1024:
+                raise ProjectError(f'DEX audit budget: {name}')
+            try:
+                dex_classes = dex_defined_classes(archive.read(item))
+            except ProjectError as exc:
+                raise ProjectError(f'{name}: {exc}') from exc
+            if any(n.startswith(('Lde/robv/android/xposed/', 'Lio/github/libxposed/')) for n in dex_classes):
+                raise ProjectError(f'{name}: Xposed API classes were bundled instead of compileOnly')
+            if definitions.intersection(dex_classes) or len(dex_classes) != len(set(dex_classes)):
+                raise ProjectError(f'{name}: duplicate DEX class definitions')
+            definitions.update(dex_classes)
+            dex_counts[name] = len(dex_classes)
+        if not dex_counts:
             raise ProjectError('APK has no code')
-        if any(n.startswith(('Lde/robv/android/xposed/', 'Lio/github/libxposed/')) for n in definitions):
-            raise ProjectError('Xposed API classes were bundled instead of compileOnly')
+        if set(dex_counts) != {'classes.dex', *(f'classes{i}.dex' for i in range(2, len(dex_counts) + 1))}:
+            raise ProjectError('APK DEX entries must start at classes.dex and be contiguous')
+        return dex_counts, definitions
+
+
+def audit_xposed_manifest(aapt2, apk, root, cfg):
+    tree = run([aapt2, 'dump', 'xmltree', '--file', 'AndroidManifest.xml', apk], root, capture=True).decode('utf-8', 'replace')
+    if re.search(r'^ *E: permission(?: |$)', tree, re.MULTILINE):
+        raise ProjectError('APK unexpectedly defines a permission')
+    attrs = re.compile(r'^ *A: http://schemas\.android\.com/apk/res/android:(\w+)\(0x[0-9a-f]+\)=(.*)$', re.MULTILINE)
+    metas = {}
+    for section in re.split(r'^ *E: ', tree, flags=re.MULTILINE):
+        if not section.startswith('meta-data '):
+            continue
+        values = dict(attrs.findall(section))
+        for key in ('xposedmodule', 'xposedminversion', 'xposedscope'):
+            if values.get('name', '').startswith(f'"{key}"'):
+                if key in metas:
+                    raise ProjectError(f'duplicate APK Xposed metadata: {key}')
+                metas[key] = values
+    if (metas.get('xposedmodule', {}).get('value') != 'true' or
+            metas.get('xposedminversion', {}).get('value') != str(cfg['xposed_min_api'])):
+        raise ProjectError('APK Xposed module/minimum API differs from contract')
+    reference = metas.get('xposedscope', {}).get('resource', '')
+    if not re.fullmatch(r'@0x[0-9a-f]+', reference):
+        raise ProjectError('APK Xposed scope is not a resource reference')
+    resources = run([aapt2, 'dump', 'resources', apk], root, capture=True).decode('utf-8', 'replace').splitlines()
+    scope_blocks = []
+    for i, line in enumerate(resources):
+        if line.strip() == f'resource {reference[1:]} array/xposed_scope':
+            indent = len(line) - len(line.lstrip())
+            block = []
+            for child in resources[i + 1:]:
+                if len(child) - len(child.lstrip()) <= indent:
+                    break
+                block.append(child.strip())
+            scope_blocks.append(block)
+    expected = cfg['xposed_scope']
+    if (len(scope_blocks) != 1 or len(scope_blocks[0]) != 2 or
+            scope_blocks[0][0] != f'() (array) size={len(expected)}' or
+            json.loads(scope_blocks[0][1]) != expected):
+        raise ProjectError('APK packaged Xposed scope differs from target-only contract')
 
 
 def audit_apk(apk, root=ROOT, cfg=None, version=None, unsigned=False):
     if cfg is None or version is None:
         snap = Snapshot(root); cfg = config_for(snap); version = metadata(snap.read, cfg)
     apk = Path(apk).resolve()
-    audit_zip(apk)
-    signer = root / 'build-tools/apksigner-extracted/usr/share/java/apksigner-35.0.2.jar'
+    dex_counts, definitions = audit_zip(apk)
+    required_classes = {
+        'L' + cfg['xposed_entry'].replace('.', '/') + ';',
+        'L' + compose_launcher(cfg).replace('.', '/') + ';',
+        'Landroidx/activity/compose/ComponentActivityKt;',
+        'Landroidx/compose/runtime/Composer;',
+        'Ltop/yukonga/miuix/kmp/theme/MiuixThemeKt;',
+        'Ltop/yukonga/miuix/kmp/basic/CardKt;',
+        'Ltop/yukonga/miuix/kmp/preference/SwitchPreferenceKt;',
+    }
+    if missing := required_classes - definitions:
+        raise ProjectError('APK is missing required Compose/Miuix or Hook classes: ' + ', '.join(sorted(missing)))
+    signer = root / 'build-tools/lib/apksigner.jar'
     certificate = None
-    command = ['java', '-cp', signer, 'com.android.apksigner.ApkSignerTool',
+    command = [java_executable(), '-cp', signer, 'com.android.apksigner.ApkSignerTool',
                'verify', '--verbose', '--print-certs', apk]
     if unsigned:
         result = subprocess.run([str(a) for a in command], cwd=root, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
@@ -374,21 +479,32 @@ def audit_apk(apk, root=ROOT, cfg=None, version=None, unsigned=False):
             raise ProjectError('expected Android9+ v3 signature')
         certificate = certs[0].lower()
     run(['zipalign', '-c', '4', apk], root)
-    badging = run(['aapt', 'dump', 'badging', apk], root, capture=True).decode('utf-8', 'replace')
+    aapt2 = root / 'build-tools/bin/aapt2'
+    badging = run([aapt2, 'dump', 'badging', apk], root, capture=True).decode('utf-8', 'replace')
     found = re.search(r"package: name='([^']+)' versionCode='([^']+)' versionName='([^']+)'", badging)
     if not found or found.groups() != (cfg['package_name'], str(version['version_code']), version['app_version']):
         raise ProjectError('APK package/version differs from source')
-    for key, expected in [('sdkVersion', cfg['min_sdk']), ('targetSdkVersion', cfg['target_sdk'])]:
-        found = re.search(rf"^{key}:'([^']+)'", badging, re.MULTILINE)
+    # aapt prints 'sdkVersion', aapt2 prints 'minSdkVersion'; both describe the same field.
+    for key, expected in [(('sdkVersion', 'minSdkVersion'), cfg['min_sdk']), (('targetSdkVersion',), cfg['target_sdk'])]:
+        found = None
+        for name in key:
+            found = re.search(rf"^{name}:'([^']+)'", badging, re.MULTILINE)
+            if found: break
         if not found or int(found.group(1)) != expected:
-            raise ProjectError(f'APK {key} differs from contract')
+            raise ProjectError(f'APK {key[0]} differs from contract')
     permissions = re.findall(r"^uses-permission(?:-[^:]+)?: name='([^']+)'", badging, re.MULTILINE)
     if sorted(permissions) != sorted(cfg['allowed_permissions']):
         raise ProjectError('APK permissions differ from contract')
+    launchers = re.findall(r"^launchable-activity: name='([^']+)'", badging, re.MULTILINE)
+    if launchers != [compose_launcher(cfg)] or 'application-debuggable' in badging.splitlines():
+        raise ProjectError('APK does not have the expected non-debuggable Compose launcher')
+    audit_xposed_manifest(aapt2, apk, root, cfg)
     digest = hashlib.sha256(apk.read_bytes()).hexdigest()
     kind = 'UNSIGNED (not installable)' if unsigned else 'pinned signer/v3'
-    print(f'PASS APK audit: {kind}, package/version, alignment, permission/entry isolation; sha256={digest}')
-    return {'sha256': digest, 'signer_certificate_sha256': certificate}
+    dex_summary = ', '.join(f'{name}: {count}' for name, count in dex_counts.items())
+    print(f'PASS APK audit: {kind}; package/version/SDK, alignment, launcher, permissions, Xposed metadata and isolation; sha256={digest}')
+    print(f'  Parsed all DEX definitions: {dex_summary}')
+    return {'sha256': digest, 'signer_certificate_sha256': certificate, 'dex_class_counts': dex_counts}
 
 
 def dirty(root=ROOT):
@@ -429,7 +545,7 @@ def release(output, root=ROOT):
         report = {'schema_version': 1, 'project_id': cfg['project_id'], 'source_commit': commit,
                   'created_utc': datetime.now(timezone.utc).isoformat(), 'package_name': cfg['package_name'],
                   **version, **audit, 'automated_checks': ['source/index policy', 'management tests', 'Java regression tests',
-                  'all Android sources compiled', 'D8/resources/signature/alignment', 'APK/source archive audit'],
+                  'Compose and Java Android sources compiled', 'AGP release + signature/alignment', 'APK/source archive audit'],
                   'oem_reference_available': (root / 'build/compat-fixtures/reference.apk').is_file(),
                   'validation_scope': 'offline only; this package is NOT certified for physical fan effects or other ROM/framework combinations',
                   'installed_by_this_command': False}
@@ -514,7 +630,7 @@ def main():
         else:
             install_hooks()
         return 0
-    except (ProjectError, OSError, ValueError, KeyError, ET.ParseError) as exc:
+    except (ProjectError, OSError, ValueError, KeyError, ET.ParseError, BadZipFile) as exc:
         print(f'ERROR: {exc}', file=sys.stderr)
         return 1
 

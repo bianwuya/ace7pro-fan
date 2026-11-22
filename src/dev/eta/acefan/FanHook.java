@@ -5,6 +5,7 @@ import android.content.BroadcastReceiver;
 import android.content.Context;
 import android.content.Intent;
 import android.content.IntentFilter;
+import android.database.ContentObserver;
 import android.net.Uri;
 import android.os.BatteryManager;
 import android.os.Binder;
@@ -46,6 +47,9 @@ public final class FanHook implements IXposedHookLoadPackage {
     private static final Uri API=Uri.parse("content://dev.eta.acefan.data");
     private static final AtomicBoolean started=new AtomicBoolean(), queued=new AtomicBoolean();
     private static final ChargeCurve chargeCurve=new ChargeCurve();
+    private static final DailyFanPolicy daily=new DailyFanPolicy();
+    private static volatile DailyObservation dailyObservation;
+    private static String previousDailyTrigger="";
     private static final WakeHandoff handoff=new WakeHandoff();
     private static volatile Context context;
     private static volatile Handler originalHandler,worker;
@@ -69,7 +73,26 @@ public final class FanHook implements IXposedHookLoadPackage {
     }
     private static final class AppliedDecision {
         final long id,generation,at;final int mode;
-        AppliedDecision(int mode,long generation,long at){this.id=decisionIds.incrementAndGet();this.mode=mode;this.generation=generation;this.at=at;}
+        final DailyObservation dailyResult;
+        AppliedDecision(int mode,long generation,long at){this(mode,generation,at,null);}
+        AppliedDecision(int mode,long generation,long at,DailyObservation dailyResult){
+            this.id=decisionIds.incrementAndGet();this.mode=mode;this.generation=generation;this.at=at;this.dailyResult=dailyResult;
+        }
+    }
+    private static final class DailyObservation {
+        final DailyFanPolicy.Frame frame;
+        final long at;
+        final String state;
+        final int original,candidate;
+        final Integer maximum,request;
+        DailyObservation(DailyFanPolicy.Frame f,String state,int original,int candidate,Integer maximum,Integer request,long at){
+            frame=f;this.state=state;this.original=original;this.candidate=candidate;this.maximum=maximum;this.request=request;this.at=at;
+        }
+        boolean matches(DailyFanPolicy.Frame f,long now){
+            return f!=null&&frame.epoch==f.epoch&&frame.version==f.version&&frame.demand==f.demand
+                    &&frame.fusion.contributorMask==f.fusion.contributorMask&&DailyFanPolicy.fresh(frame.sampledAt,now)
+                    &&DailyFanPolicy.fresh(at,now);
+        }
     }
 
     private static final class Gate {
@@ -177,6 +200,14 @@ public final class FanHook implements IXposedHookLoadPackage {
                     try{
                         int old=original;lastOem=old;
                         evidence.success(stage,member,"原厂返回="+old,SystemClock.elapsedRealtime());
+                        DailyFanPolicy.Frame day=daily.current(SystemClock.elapsedRealtime());
+                        if(day!=null&&day.config!=null&&day.config.enabled&&dailyPowerAvailable()){
+                            stage="日用候选";
+                            // Legacy phase/active continue to describe the charge policy only.
+                            lastCandidate=old;active=false;
+                            applyDailyCandidate(found,p,old,day);
+                            return;
+                        }
                         stage="自动模式实读";Boolean automatic=null;
                         try{automatic=found.readAutomatic();if(automatic!=null)evidence.success(stage,found.automaticDescription(),"auto="+automatic,SystemClock.elapsedRealtime());}
                         catch(Throwable t){failure(stage,found.automaticDescription(),t);}
@@ -196,7 +227,10 @@ public final class FanHook implements IXposedHookLoadPackage {
                         }
                         stage="档位上限读取";int maximum=found.readMaximum();
                         evidence.success(stage,String.valueOf(found.maximumField!=null?found.maximumField:found.maxLevel),"实际上限="+maximum,SystemClock.elapsedRealtime());
-                        int desired=chargeCurve.level();int chosen=Math.max(old,Math.min(maximum,desired));
+                        int desired=chargeCurve.level();
+                        // Only raise an already-running fan; a stopped OEM fan stays stopped.
+                        if(old<=0||desired<=0){observeOriginal(old,"原厂未起转或当前无增风需求：原厂="+old+"，需求="+desired);return;}
+                        int chosen=Math.max(old,Math.min(maximum,desired));
                         if(chosen<=old){observeOriginal(old,"当前无需额外增风：原厂="+old+"，需求="+desired);return;}
                         stage="候选应用";
                         AppliedDecision decision=new AppliedDecision(gate.mode,handoff.generation(),SystemClock.elapsedRealtime());
@@ -223,6 +257,10 @@ public final class FanHook implements IXposedHookLoadPackage {
                 @Override protected void afterHookedMethod(MethodHookParam p){
                     AppliedDecision d=(AppliedDecision)p.getObjectExtra("acefan.decision");
                     if(p.hasThrowable()){failure("原厂控制调用",FanServiceCompat.methodKey(setter),p.getThrowable());return;}
+                    if(d!=null&&d.dailyResult!=null){
+                        observeDailyRequest(found,p,d.dailyResult);
+                        return;
+                    }
                     if(((Integer)p.args[0])<=0){
                         // An OEM stop also ends a previous session when no new candidate was applied.
                         cancelContinuation();active=false;decisionReason="原厂要求停转，已保留该结果";
@@ -282,12 +320,17 @@ public final class FanHook implements IXposedHookLoadPackage {
             if(Intent.ACTION_BATTERY_CHANGED.equals(action)){
                 batteryEventAt=SystemClock.elapsedRealtime();
                 int plugged=i.getIntExtra(BatteryManager.EXTRA_PLUGGED,0),status=i.getIntExtra(BatteryManager.EXTRA_STATUS,0);
+                boolean releaseDaily=daily.powerReport(DailyFanPolicy.power(i.getIntExtra(BatteryManager.EXTRA_PLUGGED,-1),Telemetry.explicitlyDischarging(i)));
                 eventChargeBlocked=(plugged&(BatteryManager.BATTERY_PLUGGED_AC|BatteryManager.BATTERY_PLUGGED_USB))==0 || (plugged&BatteryManager.BATTERY_PLUGGED_WIRELESS)!=0 || status!=BatteryManager.BATTERY_STATUS_CHARGING;
                 if(eventChargeBlocked){active=false;cancelContinuation();requestRefresh();}
+                else if(releaseDaily)requestRefresh();
             }else if(Intent.ACTION_POWER_DISCONNECTED.equals(action)){
+                daily.powerEdge(false);
                 powerDisconnected=true;eventChargeBlocked=true;active=false;snapshot=null;cancelContinuation();requestRefresh();
             }else if(Intent.ACTION_POWER_CONNECTED.equals(action)){
+                boolean releaseDaily=daily.powerEdge(true);
                 powerDisconnected=false;
+                if(releaseDaily)requestRefresh();
             }
             if(Intent.ACTION_SCREEN_ON.equals(action)||Intent.ACTION_SCREEN_OFF.equals(action)||Intent.ACTION_USER_PRESENT.equals(action)||Intent.ACTION_USER_UNLOCKED.equals(action)){
                 // SCREEN_ON is not an unlock: retain fresh telemetry and let the live keyguard gate decide.
@@ -298,6 +341,14 @@ public final class FanHook implements IXposedHookLoadPackage {
         }};
         if(Build.VERSION.SDK_INT>=33)context.registerReceiver(receiver,f,null,h,Context.RECEIVER_NOT_EXPORTED);
         else context.registerReceiver(receiver,f,null,h);
+        try{
+            context.getContentResolver().registerContentObserver(Uri.withAppendedPath(API,DailyFanContract.PATH),false,new ContentObserver(h){
+                @Override public void onChange(boolean selfChange){
+                    if(daily.invalidate())requestRefresh();
+                    sampleSoon();
+                }
+            });
+        }catch(Throwable t){failure("日用配置通知",DailyFanContract.PATH,t);}
         if(Build.VERSION.SDK_INT>=33)try{Api33.listen(h);}catch(Throwable t){
             XposedBridge.log("ACEFan "+VERSION+": keyguard listener unavailable; using live state, user-present events and sampling");
         }
@@ -324,19 +375,30 @@ public final class FanHook implements IXposedHookLoadPackage {
     private static final Runnable tick=new Runnable(){@Override public void run(){
         long next=Sampling.ACTIVE_MS;
         try{
+            long dayEpoch=daily.epoch();
             JSONObject s=Telemetry.sample(context);
+            DailyFanPolicy.Power power=DailyFanPolicy.power(s.optInt("plugged",-1),s.optBoolean("batteryDischarging",false));
             Bundle cfg=api("config",null);
-            if(cfg!=null){enabled=cfg.getBoolean("enabled",false);configVersion=cfg.getLong("version");lastConfigAt=SystemClock.elapsedRealtime();}
+            if(cfg!=null){
+                enabled=cfg.getBoolean("enabled",false);configVersion=cfg.getLong("version");lastConfigAt=SystemClock.elapsedRealtime();
+                chargeCurve.configure(cfg.getDouble("startTemp",ChargeCurve.DEFAULT_START),ChargeCurve.DEFAULT_GAIN,ChargeCurve.DEFAULT_FLOOR,ChargeCurve.DEFAULT_CEILING);
+            }
             else if(SystemClock.elapsedRealtime()-lastConfigAt>Sampling.staleMs(sampleIntervalMs))enabled=false;
             sampleAt=SystemClock.elapsedRealtime();snapshot=s;
             hardReason=workerHardEligibility(s);
             evidence.success("运行条件","供电/温度/开关",hardReason,SystemClock.elapsedRealtime());
             Gate gate=evaluateGate();
-            chargeCurve.update(s.optDouble("battery",Double.NaN),SystemClock.elapsedRealtime(),gate.allowed());
+            double fused=FusionTemp.fuse(new double[]{s.optDouble("battery",Double.NaN),s.optDouble("mos",Double.NaN),s.optDouble("board",Double.NaN),s.optDouble("fan",Double.NaN)});
+            chargeCurve.update(fused,SystemClock.elapsedRealtime(),gate.allowed());
             String trigger=hardReason+"|"+gate.mode+"|"+configVersion+"|"+chargeCurve.level()+"|"+compatibilityStatus;
             if(!trigger.equals(previousTrigger)){previousTrigger=trigger;requestRefresh();}
             if(!gate.allowed()){active=false;decisionReason=gate.reason;}
+            DailyFanPolicy.Frame day=sampleDaily(s,power,dayEpoch);
+            boolean dayEnabled=day!=null&&day.config!=null&&day.config.enabled;
+            String dayTrigger=dayEnabled?day.epoch+"|"+day.version+"|"+day.demand+"|"+day.state+"|"+day.fusion.contributorMask:"";
+            if(!dayTrigger.equals(previousDailyTrigger)){previousDailyTrigger=dayTrigger;requestRefresh();}
             long tier=Sampling.interval(gate.allowed(),"允许".equals(hardReason));
+            if(dayEnabled)tier=Math.min(tier,Sampling.ACTIVE_MS);
             sampleIntervalMs=tier;next=tier;
             long remaining=handoff.remaining(SystemClock.elapsedRealtime());
             if(remaining>0)next=Math.min(next,remaining+50L);
@@ -367,10 +429,18 @@ public final class FanHook implements IXposedHookLoadPackage {
             s.put("compatibilityTrace",tr.toString());
             s.put("phase",phase);s.put("handoffRemainingMs",remaining);s.put("active",active);s.put("reason",decisionReason);
             s.put("oem",lastOem<0?JSONObject.NULL:lastOem);s.put("candidate",lastCandidate<0?JSONObject.NULL:lastCandidate);s.put("request",lastRequest<0?JSONObject.NULL:lastRequest);s.put("curve",chargeCurve.level());
+            s.put("fused",Double.isNaN(fused)||Double.isInfinite(fused)?JSONObject.NULL:fused);
+            s.put("fusionWeights",FusionTemp.weightSummary(FusionTemp.WEIGHTS));
+            s.put("fusionContributors",FusionTemp.contributors(new double[]{s.optDouble("battery",Double.NaN),s.optDouble("mos",Double.NaN),s.optDouble("board",Double.NaN),s.optDouble("fan",Double.NaN)},FusionTemp.WEIGHTS));
+            s.put("curveParams",chargeCurve.summary());
+            boolean dayCurrent=dailyPowerAvailable()&&day!=null&&day==daily.current(SystemClock.elapsedRealtime());
+            s.put("controlMode",chargePowerAvailable()?"charge":dayCurrent?"daily":"oem");
+            if(dayCurrent)s.put("daily",dailyTelemetry(day));
             double[] temps={s.optDouble("battery",Double.NaN),s.optDouble("board",Double.NaN),s.optDouble("fan",Double.NaN),s.optDouble("mos",Double.NaN)};
-            String key=evidence.activeFailures()+"|"+evidence.lastFailureResolved()+"|"+evidence.counters()+"|"+evidence.lastStage()+"|"+evidence.lastError()+"|"+trigger+"|"+active+"|"+decisionReason+"|"+s.optString("fanStatus","")+"|"+s.optInt("effective",-1)+"|"+s.optInt("driver",-1)+"|"+s.optBoolean("interactive",false);
+            String key=evidence.activeFailures()+"|"+evidence.lastFailureResolved()+"|"+evidence.counters()+"|"+evidence.lastStage()+"|"+evidence.lastError()+"|"+trigger+"|"+active+"|"+decisionReason+"|"+s.optString("fanStatus","")+"|"+s.optInt("effective",-1)+"|"+s.optInt("driver",-1)+"|"+s.optBoolean("interactive",false)+"|"+s.optString("controlMode","")+"|"+dailyPushKey(dayCurrent?day:null);
             long nowElapsed=SystemClock.elapsedRealtime();
-            if(Sampling.shouldPush(!pushedOnce,!key.equals(lastPushKey),nowElapsed-lastPushAt,Sampling.maxDelta(temps,lastPushTemps))){
+            if(Sampling.shouldPush(!pushedOnce,!key.equals(lastPushKey),nowElapsed-lastPushAt,
+                    Sampling.maxDelta(temps,lastPushTemps),dayEnabled&&dayCurrent)){
                 long gap=nowElapsed-lastPushAt;
                 if(pushedOnce&&gap<1000L)next=Math.min(next,Math.max(100L,1000L-gap));
                 else{
@@ -383,9 +453,127 @@ public final class FanHook implements IXposedHookLoadPackage {
                     }
                 }
             }
-        }catch(Throwable t){failure("遥测采样","Telemetry/config/push",t);active=false;cancelContinuation();next=Sampling.IDLE_MS;sampleIntervalMs=next;}
+        }catch(Throwable t){
+            if(daily.invalidate())requestRefresh();
+            failure("遥测采样","Telemetry/config/push",t);active=false;cancelContinuation();next=Sampling.IDLE_MS;sampleIntervalMs=next;
+        }
         finally{if(worker!=null){worker.removeCallbacks(this);worker.postDelayed(this,next);}}
     }};
+
+    private static boolean chargePowerAvailable(){
+        JSONObject s=snapshot;
+        return !powerDisconnected&&!eventChargeBlocked&&s!=null&&s.optBoolean("wired",false)&&s.optBoolean("charging",false);
+    }
+
+    private static boolean dailyPowerAvailable(){
+        JSONObject s=snapshot;
+        return s!=null&&s.optInt("plugged",-1)==0&&s.optBoolean("batteryDischarging",false);
+    }
+
+    private static boolean dailyOwnerAllows(){
+        android.content.ContentResolver r=context.getContentResolver();
+        return DailyFanPolicy.ownerAllows(Settings.System.getString(r,"cooling_fan_main_switch_modify"),
+                Settings.System.getString(r,"cooling_fan_main_switch"),Settings.System.getString(r,"cooling_fan_mode_v3"),
+                Settings.System.getString(r,"cooling_fan_mode_auto_control_switch"),
+                Settings.System.getString(r,"regular_charge_protection_status"),Settings.Global.getString(r,"cooling_fan_service_abort"));
+    }
+
+    private static DailyFanPolicy.Frame sampleDaily(JSONObject s,DailyFanPolicy.Power power,long epoch){
+        DailyFanConfig cfg=null;
+        long version=-1L;
+        boolean oemAllowed=false;
+        if(daily.accepts(epoch,power)){
+            Bundle reply=api(DailyFanContract.READ,null);
+            if(reply!=null)try{
+                cfg=DailyFanContract.decode(reply);
+                version=DailyFanContract.version(reply,"version");
+                evidence.success("日用配置内容","Provider."+DailyFanContract.READ,"配置版本="+version, SystemClock.elapsedRealtime());
+            }catch(RuntimeException e){cfg=null;failure("日用配置内容",DailyFanContract.READ,e);}
+            if(cfg!=null&&cfg.enabled&&compatible)try{
+                oemAllowed=dailyOwnerAllows()&&DailyFanPolicy.healthy(s.optString("fanStatus",""),null);
+            }catch(RuntimeException e){failure("日用原厂设置读取","Settings",e);}
+        }
+        long now=SystemClock.elapsedRealtime();
+        long lastEvent=batteryEventAt;
+        double batt=(!s.optBoolean("batteryValid",false)||("battery_sticky".equals(s.optString("batterySource"))
+                && (lastEvent<=0||now-lastEvent>60_000L)))?Double.NaN:s.optDouble("battery",Double.NaN);
+        double[] readings={batt,s.optDouble("board",Double.NaN),s.optDouble("fan",Double.NaN),s.optDouble("mos",Double.NaN)};
+        return daily.sample(epoch,power,cfg,version,readings,s.optLong("elapsed",-1L),now,oemAllowed);
+    }
+
+    private static void applyDailyCandidate(FanServiceCompat found,XC_MethodHook.MethodHookParam p,int old,DailyFanPolicy.Frame day)throws Exception{
+        if(day.demand<=0)return;
+        String state;
+        int chosen=old;
+        Integer maximum=null;
+        if(!dailyOwnerAllows()||Boolean.FALSE.equals(found.readAutomatic()))state="oem_blocked";
+        else if(!DailyFanPolicy.allowedScene(found.readStrategy()))state="scene_blocked";
+        else{
+            // The ready frame already required a fresh NORMAL hardware sample; live event can still veto it.
+            JSONObject s=snapshot;
+            if(s==null||!DailyFanPolicy.healthy(s.optString("fanStatus",""),found.event()))state="health_blocked";
+            else if(old<=0)state="waiting_oem"; // Temperature is ready; the OEM still owns the start/stop decision.
+            else{
+                maximum=found.readMaximum();
+                chosen=DailyFanPolicy.candidate(old,maximum,day.demand);
+                state=chosen>old?"candidate_applied":"oem_level_sufficient";
+            }
+        }
+        long now=SystemClock.elapsedRealtime();
+        synchronized(daily){
+            if(day!=daily.current(now)||!dailyPowerAvailable())return;
+            DailyObservation obs=new DailyObservation(day,state,old,chosen,maximum,null,now);
+            if(chosen>old){
+                AppliedDecision decision=new AppliedDecision(WakeHandoff.OEM,0L,now,obs);
+                p.setResult(chosen);
+                controlCycle.attach(decision);
+            }
+            dailyObservation=obs;
+        }
+    }
+
+    private static void observeDailyRequest(FanServiceCompat found,XC_MethodHook.MethodHookParam p,DailyObservation before){
+        try{
+            long now=SystemClock.elapsedRealtime();
+            int request=(Integer)p.args[0];
+            boolean accepted=Boolean.TRUE.equals(found.confirmed(p.thisObject))&&Integer.valueOf(request).equals(found.level(p.thisObject));
+            String state=request<=0?"oem_stopped":request<before.candidate?"oem_limited":accepted?"request_confirmed":"request_observed";
+            synchronized(daily){
+                if(dailyObservation!=before||!before.matches(daily.current(now),now)||!dailyPowerAvailable())return;
+                dailyObservation=new DailyObservation(before.frame,state,before.original,before.candidate,before.maximum,request,before.at);
+            }
+        }catch(Throwable t){failure("日用控制反馈", "OEM controller",t);}
+    }
+
+    private static JSONObject dailyTelemetry(DailyFanPolicy.Frame frame)throws org.json.JSONException{
+        JSONObject out=new JSONObject();
+        long now=SystemClock.elapsedRealtime();
+        DailyObservation obs=dailyObservation;
+        if(obs!=null&&!obs.matches(frame,now))obs=null;
+        out.put("state",obs==null?frame.state:obs.state);
+        out.put("version",frame.version<0?JSONObject.NULL:frame.version);
+        if(frame.config!=null){
+            out.put("enabled",frame.config.enabled);out.put("startTemp",frame.config.startC);out.put("minLevel",frame.config.floor);
+        }
+        out.put("fusedTemp",frame.fusion.contributorMask==0?JSONObject.NULL:frame.fusion.celsius);
+        out.put("contributorMask",frame.fusion.contributorMask);
+        out.put("demand",frame.demand);
+        if(obs!=null){
+            out.put("decisionElapsed",obs.at);
+            out.put("decisionFusedTemp",obs.frame.fusion.celsius);
+            out.put("oem",obs.original);out.put("candidate",obs.candidate);
+            if(obs.maximum!=null)out.put("maxLevel",obs.maximum);
+            if(obs.request!=null)out.put("request",obs.request);
+        }
+        return out;
+    }
+
+    private static String dailyPushKey(DailyFanPolicy.Frame day){
+        if(day==null)return "";
+        DailyObservation obs=dailyObservation;
+        return day.version+"|"+day.state+"|"+day.demand+"|"+day.fusion.contributorMask
+                +(obs!=null&&obs.matches(day,SystemClock.elapsedRealtime())?"|"+obs.state+"|"+obs.candidate+"|"+obs.request:"");
+    }
 
     private static String workerHardEligibility(JSONObject s){
         try{
@@ -464,7 +652,8 @@ public final class FanHook implements IXposedHookLoadPackage {
         }catch(Throwable t){failure("原厂重算",bootstrap==null?"未定位":FanServiceCompat.methodKey(bootstrap.refresh),t);}}});
     }
     private static Bundle api(String method,Bundle b){
-        String stage="config".equals(method)?"配置读取":"报告回传";
+        boolean dayRead=DailyFanContract.READ.equals(method);
+        String stage=dayRead?"日用配置读取":"config".equals(method)?"配置读取":"报告回传";
         long token=Binder.clearCallingIdentity();
         try{
             UserManager users=(UserManager)context.getSystemService(Context.USER_SERVICE);
@@ -477,7 +666,8 @@ public final class FanHook implements IXposedHookLoadPackage {
                 throw new IllegalStateException("配置回执缺少 enabled/version");
             if("push".equals(method)&&!out.getBoolean("ok",false))
                 throw new IllegalStateException("Provider.push 未确认写入");
-            evidence.success(stage,"Provider."+method,"config".equals(method)?"配置版本="+out.getLong("version")+"；enabled="+out.getBoolean("enabled"):"写入回执 ok=true",SystemClock.elapsedRealtime());
+            if(dayRead)DailyFanContract.version(out,"version");
+            evidence.success(stage,"Provider."+method,(dayRead||"config".equals(method))?"配置版本="+out.getLong("version")+"；enabled="+out.getBoolean("enabled"):"写入回执 ok=true",SystemClock.elapsedRealtime());
             return out;
         }catch(Throwable t){
             // Preserve the original cause; do not overwrite it with a second generic failure.

@@ -14,6 +14,9 @@ public final class SamplingTest {
     eqb(Sampling.shouldPush(false,true,0,0),true);
     eqb(Sampling.shouldPush(false,false,19999,0.1),false);
     eqb(Sampling.shouldPush(false,false,20000,0),true);
+    eqb(Sampling.shouldPush(false,false,9_999L,0,true),false);
+    eqb(Sampling.shouldPush(false,false,10_000L,0,true),true);
+    eqb(Sampling.shouldPush(false,false,10_000L,0,false),false);
     eqb(Sampling.shouldPush(false,false,5000,0.2),true);
     eqb(Sampling.shouldPush(false,false,5000,0.19),false);
     eqb(Sampling.shouldPush(false,false,5000,Double.NaN),false);

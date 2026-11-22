@@ -2,6 +2,27 @@
 
 **管理审计日期：2026-11-03。** 这是有时点的记录，不是实时设备状态。兼容矩阵以 [COMPATIBILITY.md](../COMPATIBILITY.md) 为主；待办见 [TASKS.md](../TASKS.md)。
 
+## 0.7.1-fusion-fix：已覆盖安装，Hook 待重载（2026-11-22）
+
+- 排障实读：旧 Hook `0.6.1-daily-backend` 已注入，日用 v0–v2 均回报关闭，无配置读取异常。保存的 v2 为 `36 °C / 10 档 / 1:0:0:0`，只计算电池；采样融合温度低于门槛。保存参数不等于启用，原厂 0 档也不会被强制抬高。这不能证明用户点过开关或曾在已启用、达温时失效。
+- 修复版可显式「保存并开启」，普通保存不动开关；区分配置同步、未达温、原厂停转和控制反馈，标明融合参与通道。Hook `0.6.2-daily-feedback` 改进日用回传和决策时点，不改原厂正档前提和充电策略。47 项 Python、10 组 Java（含日用 620 条断言）、Compose 编译、AGP Release/lintVital、unsigned/v3 APK 审计通过。日志 `build/0.7.1-verify.log`、`build/0.7.1-build.log`。
+- 实机用户 0 于 15:32:08 UTC+8 同签名安装 `dev.eta.acefan` App `0.7.1-fusion-fix` / versionCode 18；回读 APK SHA256 `fb0e35a874ca74af589ef2fec34bf923926a8ec16d3e8cc695be30554ffe4e87`。安装前后 Provider 日用和充电设置一致，原厂 PID 未变；未卸载、清数据、重启或改作用域。虚拟屏确认概览参与通道、设置关闭状态和编辑两种保存按钮；未点击启用。运行仍为旧 Hook，App 提示待重载，未验收新版 Hook 正候选抬档或驱动效果。
+- APK 与回读校验清单位于 `Download/eta/工作区产物/ace7pro-fan/0.7.1-fusion-fix/`。源码基线 `baff141`，更新仅在本地工作树，未提交、推送或云端发布。
+
+## 0.7.0-miuix 本地交付（2026-11-22）
+
+- App `0.7.0-miuix`（versionCode 17）；Hook `0.6.1-daily-backend`，原控制路径未改。实际 Compose Miuix UI + Preference `0.9.5-beta01`，唯一启动界面 `MiuixActivity`。首屏直接显示五个温度、真实有效档位和次级状态；日用三项参数及独立开关已接通，不主动启用。
+- Linux aarch64/JDK 25 离线通过 47 项 Python 检查、10 组纯 Java 回归、完整 Compose 编译和 AGP Release 组装（含 lintVital）。无签名中间包与 v3 签名 APK 审计均通过；审计实际包名/版本/SDK、对齐、入口、权限、Xposed 元数据，并检查两个 DEX 均未夹带 Xposed API。与手机已装 `0.6.0-fusion` 同签名。
+- 交付：`Download/eta/工作区产物/ace7pro-fan/0.7.0-miuix/ACE7pro_Fan_0.7.0-miuix.apk`；SHA256 `ea7b3e851d21cfda679b719d461a4d579e0f246bc2ed3d873834892b592de29e`。说明/元数据/校验清单同目录并已读回；源码为 `baff141` 基线上的本地工作树，未提交、未上云。
+- 交付时设备仍为 `0.6.0-fusion`；此后已同签名覆盖为 `0.7.0-miuix`，复查确认 `0.6.1-daily-backend` Hook 已加载，更新情况见上。
+
+## 0.6.1-daily-backend 本地交付（2026-11-22）
+
+- 当前工作树：App/Hook `0.6.1-daily-backend`，versionCode 16，基线 `baff141`；保留原有未提交工作。设备只读确认仍安装 `0.6.0-fusion`，未自动安装、重启、改 LSPosed 或发布。
+- 充电继续用现有策略；新增明确放电时的日用独立后端，默认关闭。阈值、最低正档、四路权重、DB v3 迁移及预览读写契约见 [日用风扇后端](DAILY-FAN.md)。原厂 0 档继续保留：只读 OEM 取证未证实受保护的第三方提前起转路径。
+- `verify`：47 项项目和 SQLite 测试、9 组 Java 回归（含 610 条日用断言）、全源码编译通过。unsigned 和 v3 签名包分别通过审计；新证书和本机 0.6.0 已安装包一致。仅离线，无新 Hook 注入或物理验收。
+- 交付 `Download/eta/工作区产物/ace7pro-fan/0.6.1-daily-backend/`；APK SHA256 `5fde4809c4d1a6c544267f935318104d5e01c00ec555cb51ce27ef8e01650c56`，同目录有回读校验清单。未修改运行前端；浅/深两份 Miuix 布局审核图为本地渲染备选，本轮无可调用的配置生图入口，未发送生图请求。
+
 ## 仓库可见性：已公开（2026-11-04）
 
 - 用户明确要求后，将 `bianwuya/ace7pro-fan` 从 private 改为 public；GitHub认证查询与不带认证的API请求均返回 public。源码无需协作者权限即可访问。

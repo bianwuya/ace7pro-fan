@@ -11,7 +11,7 @@
     "com.oplus.exsystemservice"
   ],
   "allowed_permissions": [],
-  "signer_certificate_sha256": "e3977f9ff13304e9a48106cd8b2c3e68abe8ea50cbba5ad90b118500265898d9",
+  "signer_certificate_sha256": "2623f23ea49724141fb2e194f835947e7b4cd74da37f7887c22947fc7775808d",
   "required_files": [
     "AGENTS.md",
     "README.md",

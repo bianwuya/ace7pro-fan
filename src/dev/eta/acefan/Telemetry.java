@@ -70,6 +70,13 @@ public final class Telemetry {
         return out;
     }
 
+    static boolean explicitlyDischarging(Intent intent) {
+        return intent != null && intent.getIntExtra(BatteryManager.EXTRA_PLUGGED, -1) == 0
+                && intent.getIntExtra(BatteryManager.EXTRA_STATUS, BatteryManager.BATTERY_STATUS_UNKNOWN)
+                    == BatteryManager.BATTERY_STATUS_DISCHARGING
+                && intent.getBooleanExtra(BatteryManager.EXTRA_PRESENT, false);
+    }
+
     private static void addBattery(JSONObject out, Intent intent) {
         int status = intent == null ? BatteryManager.BATTERY_STATUS_UNKNOWN
                 : intent.getIntExtra(BatteryManager.EXTRA_STATUS, BatteryManager.BATTERY_STATUS_UNKNOWN);
@@ -77,6 +84,8 @@ public final class Telemetry {
         put(out, "plugged", plugged);
         put(out, "status", status);
         put(out, "charging", status == BatteryManager.BATTERY_STATUS_CHARGING);
+        // Daily must distinguish an explicit report of battery power from the legacy default of 0.
+        put(out, "batteryDischarging", explicitlyDischarging(intent));
         // A wireless bit excludes wired classification even if a platform reports combined bits.
         boolean wireless = (plugged & BatteryManager.BATTERY_PLUGGED_WIRELESS) != 0;
         boolean wired = !wireless && (plugged & (BatteryManager.BATTERY_PLUGGED_AC | BatteryManager.BATTERY_PLUGGED_USB)) != 0;

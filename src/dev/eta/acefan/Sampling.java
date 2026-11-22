@@ -27,8 +27,14 @@ public final class Sampling {
      * changed, when the floor elapsed, or when a temperature actually moved.
      */
     public static boolean shouldPush(boolean first, boolean stateChanged, long sinceLastPush, double tempDelta) {
+        return shouldPush(first, stateChanged, sinceLastPush, tempDelta, false);
+    }
+
+    static boolean shouldPush(boolean first, boolean stateChanged, long sinceLastPush, double tempDelta, boolean liveDaily) {
         if (first || stateChanged) return true;
-        if (sinceLastPush >= PUSH_FLOOR_MS) return true;
+        // Enabled daily control reads every 5 s. Publish at least every 10 s on its normal cadence
+        // so steady temperature does not make the UI outlive the 15 s live-evidence window.
+        if (sinceLastPush >= (liveDaily ? 2L * ACTIVE_MS : PUSH_FLOOR_MS)) return true;
         return tempDelta >= PUSH_TEMP_DELTA;
     }
 
