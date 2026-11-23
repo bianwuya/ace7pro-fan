@@ -7,7 +7,9 @@
 - 原因：旧策略在阈值以下把原厂 `8` 档原样放过，在阈值以上也把原厂 `0` 档原样放过；权重改成四路等权不能改变这个行为。手机源码基线 `baff141af2720f1c96ef637b0507a1988f1a97f6` 加其未提交融合工作树，在电脑隔离目录修复，未改手机工程或推送。
 - PMS110 `.159` 原厂服务 1.4.6 V3 中，`Common` 的候选可同轮观察到 `FanMode` 普通自动目标；下游再执行原厂降噪/手柄/使能等。新版仅在明确放电、日用开启、确认此目标且通过热状态检查时双向改档：`≤` 阈值请求 `0`，`>` 阈值可从 `0` 起转。充电、Provider/SQLite 格式和手机既有 `horae` 覆盖层未改。
 - WSL2 ext4：47 项 Python、10 组 Java 回归、`lintDebug`、Debug/Release 组装与无签名 APK 审计全部通过。新包 v3 证书与手机已装版本一致，完整包审计通过。构建输入文件清单摘要 `137ca4ab10c45365ff50d000558c03be21bdbca57041cd25d5ae5de72e12ce0b`；测试、验签和清单留在忽略的 `build/0.7.2-fusion-threshold/`。
-- App `0.7.2-fusion-threshold` / versionCode 19，Hook `0.6.3-daily-threshold`。签名 APK 已复制到手机 `Download/eta/工作区产物/ace7pro-fan/0.7.2-fusion-threshold/`，读回 SHA256 `cb14872da20fe9664d9cc9409e42a5e4470ae812887a7e8fe0df5151dba5dbd1`。手机仍装 `0.7.1`、接 USB，未安装新包、重载、改配置或验证新版真机启停；`DAY-005` 待放电双向验收。
+- App `0.7.2-fusion-threshold` / versionCode 19，Hook `0.6.3-daily-threshold`。签名 APK 已复制到手机 `Download/eta/工作区产物/ace7pro-fan/0.7.2-fusion-threshold/`，读回 SHA256 `cb14872da20fe9664d9cc9409e42a5e4470ae812887a7e8fe0df5151dba5dbd1`；`pm path` 回读的手机已装 `base.apk` 与该交付包同哈希，说明该版已同签名覆盖安装。
+- **2026-11-23 已发布源码与可安装包**：同一快照提交 `8e39e8da063d497feb23268d98b9791de0fc0bdc` 已推送 `main` 并打 tag `v0.7.2-fusion-threshold`；GitHub [Release](https://github.com/bianwuya/ace7pro-fan/releases/tag/v0.7.2-fusion-threshold) 提供同签名 APK、说明与校验清单，匿名下载复核哈希一致。0.7.1 的 Release 也已替换为同签名可安装包并撤回 unsigned 校验包。
+- 云端 tag 签名 job 仍未恢复：`release-signing` 环境 Secrets 是 0.3.x 的 `e397…98d9`，与 `project.json` 的 `2623…808d` 不符，会失败关闭不产包；本次可安装包来自本机同签名产物。pilot 密钥已在用户授权下只读取回电脑受控目录（不入库），后续无需再取。新 Hook 加载后的双向启停仍待 `DAY-005` 放电真机验收。
 
 ## 0.7.1-fusion-fix：日用已启用，配置修正后待放电验收（2026-11-22）
 
