@@ -8,12 +8,37 @@ public final class DailyFanPolicyTest {
     static void rejects(Runnable r) { try { r.run(); throw new AssertionError("accepted invalid config"); } catch (IllegalArgumentException ok) { checks++; } }
     static DailyFanConfig cfg(double t, int l, double... ws) { return new DailyFanConfig(true,t,l,ws); }
     static DailyFanPolicy.Frame at(DailyFanPolicy p, DailyFanConfig c, long v, long when, double... readings) {
-        return p.sample(p.epoch(),DailyFanPolicy.Power.BATTERY,c,v,readings,when,when,true);
+        return p.sample(p.epoch(),DailyFanPolicy.Power.BATTERY,c,v,readings,when,when,true,0);
     }
     static double[] batt(double t) { return new double[]{t,Double.NaN,Double.NaN,Double.NaN}; }
     static void demand(DailyFanPolicy.Frame f,int level) { expect(f!=null&&f.demand==level,"expected demand "+level+", got "+(f==null?"null":f.demand)); }
 
+    static void replayDeviceWeights() {
+        DailyFanPolicy policy = new DailyFanPolicy();
+        double[] readings = {32.7,37.273,36.442,39.093};
+        DailyFanPolicy.Frame batteryOnly = at(policy,cfg(36,10,1,0,0,0),3,1000,readings);
+        near(batteryOnly.fusion.celsius,32.7);
+        demand(batteryOnly,0);
+        expect(batteryOnly.fusion.contributorMask==1&&batteryOnly.state.equals("below_threshold"),"single-channel profile misses the threshold");
+
+        DailyFanConfig fourChannels = cfg(36,10,1,1,1,1);
+        DailyFanPolicy.Frame fused = at(policy,fourChannels,4,2000,readings);
+        near(fused.fusion.celsius,36.377);
+        demand(fused,10);
+        expect(fused.fusion.contributorMask==15&&fused.state.equals("ready"),"all four readings now count toward the threshold");
+        expect(DailyFanPolicy.candidate(0,20,fused.demand)==10,"above threshold starts a stopped OEM auto target");
+        expect(DailyFanPolicy.candidate(8,20,batteryOnly.demand)==0,"below threshold stops a positive OEM auto target");
+        expect(DailyFanPolicy.candidate(6,20,fused.demand)==10,"an eligible lower positive candidate can be raised");
+        expect(DailyFanPolicy.candidate(10,20,fused.demand)==10&&DailyFanPolicy.candidate(12,20,fused.demand)==12,"the floor does not change an adequate OEM level");
+        DailyFanPolicy.Frame cooled = at(policy,fourChannels,4,2500,32.7,36.4,35.1,39.2);
+        demand(cooled,0);
+        expect(cooled.hasTarget()&&DailyFanPolicy.candidate(8,20,cooled.demand)==0,"same profile stops on the first cooler sample");
+        expect(policy.sample(policy.epoch(),DailyFanPolicy.Power.EXTERNAL,fourChannels,4,readings,3000,3000,true,0)==null,
+                "the same temperature cannot trigger the daily route on USB power");
+    }
+
     public static void main(String[] args) {
+        replayDeviceWeights();
         // Reproduce the saved 36 C / level 10 profile with one valid value above the threshold
         // that is not assigned any weight. The explicit enable action must preserve every setting.
         DailyFanPolicy replay = new DailyFanPolicy();
@@ -28,8 +53,8 @@ public final class DailyFanPolicyTest {
         near(cool.fusion.celsius,31.6); demand(cool,0); expect(cool.state.equals("below_threshold"),"zero-weight channels cannot trip threshold");
         DailyFanPolicy.Frame hot = at(replay,cfg(36,10,0,1,1,1),4,3000,sample);
         demand(hot,10); expect(hot.fusion.contributorMask==14,"valid weighted channels reach threshold");
-        expect(DailyFanPolicy.candidate(6,20,hot.demand)==10 && DailyFanPolicy.candidate(0,20,hot.demand)==0,
-                "weighted trigger raises positive OEM candidate only");
+        expect(DailyFanPolicy.candidate(6,20,hot.demand)==10 && DailyFanPolicy.candidate(0,20,hot.demand)==10,
+                "weighted trigger also starts from zero");
         expect(!DailyFanConfig.DEFAULT.enabled,"new daily configuration must be opt-in");
         near(DailyFanConfig.DEFAULT.startC,33.0);
         expect(DailyFanConfig.DEFAULT.floor==6,"default floor");
@@ -61,45 +86,45 @@ public final class DailyFanPolicyTest {
         DailyFanPolicy p=new DailyFanPolicy();
         demand(at(p,DailyFanConfig.DEFAULT,0,0,batt(45)),0);
         demand(at(p,battery,1,1000,batt(32.9)),0);
-        demand(at(p,battery,1,2000,batt(33)),9);
-        demand(at(p,battery,1,7000,batt(54)),9); // only floor, not an additional fan curve
-        demand(at(p,battery,1,12000,batt(32.0)),9); // exact boundary not cooling
-        demand(at(p,battery,1,17000,batt(31.9)),9);
-        for(long t=22000;t<=42000;t+=5000) demand(at(p,battery,1,t,batt(31.9)),9);
-        demand(at(p,battery,1,46999,batt(31.9)),9);
+        demand(at(p,battery,1,2000,batt(33)),0);
+        demand(at(p,battery,1,7000,batt(33.1)),9);
+        demand(at(p,battery,1,12000,batt(32.99)),0);
+        demand(at(p,battery,1,17000,batt(33.01)),9);
+        demand(at(p,battery,1,22000,batt(33)),0);
         demand(at(p,battery,1,47000,batt(31.9)),0);
         demand(at(p,battery,1,48000,batt(33.1)),9);
-        demand(at(p,battery,1,49000,batt(31)),9);
-        demand(at(p,battery,1,50000,batt(32)),9); // interruption resets cooling timer
-        demand(at(p,battery,1,51000,batt(31)),9);
-        demand(at(p,battery,1,70000,batt(32.5)),0); // no continuity across a stale gap
+        demand(at(p,battery,1,49000,batt(31)),0);
+        demand(at(p,battery,1,50000,batt(32)),0);
+        demand(at(p,battery,1,51000,batt(31)),0);
+        demand(at(p,battery,1,70000,batt(32.5)),0);
         demand(at(p,battery,1,75000,batt(33.1)),9);
         demand(at(p,cfg(40,10,1,0,0,0),2,80000,batt(39.5)),0); // revision resets latch
-        demand(at(p,blend,3,81000,32,35,65,40),8);
-        demand(at(p,blend,3,82000,32,Double.NaN,65,39),0); // mixture changed; do not inherit a latched threshold
-        demand(at(p,blend,3,83000,32,35,65,40),8);
+        demand(at(p,blend,3,81000,32,35,65,41),8);
+        demand(at(p,blend,3,82000,32,Double.NaN,65,39),0);
+        demand(at(p,blend,3,83000,32,35,65,41),8);
         demand(at(p,null,-1,84000,batt(60)),0); // missing provider reply is immediate passthrough
         demand(at(p,battery,4,85000,batt(38)),9);
-        demand(p.sample(p.epoch(),DailyFanPolicy.Power.BATTERY,battery,4,batt(38),86000,86000,false),0);
+        DailyFanPolicy.Frame blocked=p.sample(p.epoch(),DailyFanPolicy.Power.BATTERY,battery,4,batt(38),86000,86000,false,0);
+        demand(blocked,0); expect(!blocked.hasTarget(),"OEM denial is not a stop request");
         demand(at(p,battery,4,87000,batt(32.5)),0);
         demand(at(p,battery,4,88000,batt(38)),9);
         expect(p.current(103000)!=null&&p.current(103001)==null,"stale frames denied without a new tick");
         long epoch=p.epoch();
         expect(p.powerEdge(true),"connection withdraws daily demand immediately");
         expect(p.current(88000)==null,"old daily frame no longer usable");
-        expect(p.sample(epoch,DailyFanPolicy.Power.BATTERY,battery,4,batt(40),88500,88500,true)==null,"reject in-flight pre-connect read");
+        expect(p.sample(epoch,DailyFanPolicy.Power.BATTERY,battery,4,batt(40),88500,88500,true,0)==null,"reject in-flight pre-connect read");
         p.powerReport(DailyFanPolicy.Power.BATTERY);
         expect(at(p,battery,4,89000,batt(40))==null,"stale discharge report cannot unblock a power connection");
         p.powerReport(DailyFanPolicy.Power.EXTERNAL);
         expect(at(p,battery,4,90000,batt(40))==null,"on electrical power even if fully charged/paused");
         p.powerEdge(false);
-        expect(p.sample(p.epoch(),DailyFanPolicy.Power.EXTERNAL,battery,4,batt(40),91000,91000,true)==null,"unplug waits for explicit battery sample");
+        expect(p.sample(p.epoch(),DailyFanPolicy.Power.EXTERNAL,battery,4,batt(40),91000,91000,true,0)==null,"unplug waits for explicit battery sample");
         p.powerReport(DailyFanPolicy.Power.UNKNOWN);
         expect(at(p,battery,4,91500,batt(40))==null,"reject contradictory/unknown report");
         p.powerReport(DailyFanPolicy.Power.BATTERY);
         demand(at(p,battery,4,92000,batt(32.5)),0);
         demand(at(p,battery,4,93000,batt(40)),9);
-        expect(!p.powerReport(DailyFanPolicy.Power.BATTERY)&&p.current(93000)!=null,"same-power broadcast does not clear latch");
+        expect(!p.powerReport(DailyFanPolicy.Power.BATTERY)&&p.current(93000)!=null,"same-power broadcast does not invalidate the decision");
         expect(p.invalidate()&&p.current(93001)==null,"config notification withdraws stale authorization");
 
         expect(DailyFanPolicy.ownerAllows("3","1","0","1",null,null),"OEM auto allowed");
@@ -115,13 +140,32 @@ public final class DailyFanPolicyTest {
                 &&!DailyFanPolicy.allowedScene("SuperCharging")&&!DailyFanPolicy.allowedScene("KeyguardLocked"),"normal scene only");
         expect(DailyFanPolicy.healthy("NORMAL",null)&&!DailyFanPolicy.healthy("",1)&&!DailyFanPolicy.healthy("NORMAL",3)
                 &&!DailyFanPolicy.healthy("FAULT",0),"health must be known normal with no recognized fault");
+        expect(DailyFanPolicy.matchesAutoTarget(0,0,1,true)&&DailyFanPolicy.matchesAutoTarget(8,8,1,true),
+                "both directions require a matching OEM auto target during the refresh");
+        expect(!DailyFanPolicy.matchesAutoTarget(0,8,1,true)&&!DailyFanPolicy.matchesAutoTarget(0,null,0,true)
+                &&!DailyFanPolicy.matchesAutoTarget(0,0,2,true)&&!DailyFanPolicy.matchesAutoTarget(0,0,1,false)
+                &&!DailyFanPolicy.matchesAutoTarget(-1,-1,1,true),"interrupts, ambiguity and failures are not normal auto targets");
+        double[] normal={32,37,36,39};
+        expect(DailyFanPolicy.thermalClear(0,normal)&&!DailyFanPolicy.thermalClear(1,normal)
+                &&!DailyFanPolicy.thermalClear(-1,normal),"system heat or unknown thermal status hands control back to OEM");
+        expect(!DailyFanPolicy.thermalClear(0,new double[]{45,32,33,34})
+                &&!DailyFanPolicy.thermalClear(0,new double[]{32,55,33,34})
+                &&!DailyFanPolicy.thermalClear(0,new double[]{32,33,34,Double.NaN}),
+                "individual high or unavailable readings veto an override even with zero fusion weight");
+        DailyFanPolicy stop=new DailyFanPolicy();
+        DailyFanPolicy.Frame stopped=at(stop,battery,1,1000,normal);
+        expect(stopped.hasTarget()&&stopped.demand==0,"cool temperature is an active stop, not absent demand");
+        expect(stopped.sameDecision(at(stop,battery,1,2000,normal)),"a newer same-decision sample retains control evidence");
+        DailyFanPolicy.Frame thermallyBlocked=stop.sample(stop.epoch(),DailyFanPolicy.Power.BATTERY,battery,1,normal,3000,3000,true,1);
+        expect(!stopped.sameDecision(thermallyBlocked)&&!thermallyBlocked.thermalClear,"thermal changes invalidate prior stop evidence");
+        expect(stop.powerEdge(true),"plugging in releases a zero target immediately too");
         for(int oem:new int[]{-1,0,1,6,8,20,23}) for(int max:new int[]{0,1,6,20,25}) for(int ask:new int[]{0,1,9,20,99}) {
             int actual=DailyFanPolicy.candidate(oem,max,ask);
-            expect(actual>=oem,"never decrease");
-            expect(oem>0&&max>0&&ask>0||actual==oem,"no new start and no actuation without a bound");
-            expect(actual==oem||actual<=Math.min(max,20),"new value limited by OEM maximum and family limit");
+            boolean valid=oem>=0&&max>0&&oem<=max;
+            int expected=!valid?oem:ask==0?0:Math.max(oem,Math.min(Math.min(max,20),ask));
+            expect(actual==expected,"valid targets obey the threshold and limits; invalid OEM values pass through");
         }
         expect(DailyFanPolicy.candidate(2,10,9)==9&&DailyFanPolicy.candidate(2,6,9)==6,"raise an already positive candidate");
-        System.out.println("DailyFanPolicy: "+checks+" configuration / fusion / power separation / stale / hysteresis / OEM-floor checks PASS");
+        System.out.println("DailyFanPolicy: "+checks+" configuration / fusion / power separation / stale / threshold checks PASS");
     }
 }

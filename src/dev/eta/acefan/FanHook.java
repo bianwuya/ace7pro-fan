@@ -1,10 +1,13 @@
 package dev.eta.acefan;
 
+import android.annotation.SuppressLint;
+import android.annotation.TargetApi;
 import android.app.KeyguardManager;
 import android.content.BroadcastReceiver;
 import android.content.Context;
 import android.content.Intent;
 import android.content.IntentFilter;
+import android.content.pm.PackageManager;
 import android.database.ContentObserver;
 import android.net.Uri;
 import android.os.BatteryManager;
@@ -69,6 +72,8 @@ public final class FanHook implements IXposedHookLoadPackage {
     private static final ThreadLocal<CandidateFrame> candidateFrame=new ThreadLocal<CandidateFrame>();
     private static final class CandidateFrame {
         final CandidateFrame parent;boolean strategyRead;
+        int autoTargetReads;
+        Integer autoTarget;
         CandidateFrame(CandidateFrame p){parent=p;}
     }
     private static final class AppliedDecision {
@@ -89,8 +94,7 @@ public final class FanHook implements IXposedHookLoadPackage {
             frame=f;this.state=state;this.original=original;this.candidate=candidate;this.maximum=maximum;this.request=request;this.at=at;
         }
         boolean matches(DailyFanPolicy.Frame f,long now){
-            return f!=null&&frame.epoch==f.epoch&&frame.version==f.version&&frame.demand==f.demand
-                    &&frame.fusion.contributorMask==f.fusion.contributorMask&&DailyFanPolicy.fresh(frame.sampledAt,now)
+            return frame.sameDecision(f)&&DailyFanPolicy.fresh(frame.sampledAt,now)
                     &&DailyFanPolicy.fresh(at,now);
         }
     }
@@ -178,6 +182,16 @@ public final class FanHook implements IXposedHookLoadPackage {
                 }));}catch(Throwable t){failure("候选辨认安装",FanServiceCompat.methodKey(getter),t);}
             }
         }
+        Method autoTarget=found.autoTarget();
+        if(autoTarget!=null)try{installed.add(XposedBridge.hookMethod(autoTarget,new XC_MethodHook(){
+            @Override protected void afterHookedMethod(MethodHookParam p){
+                CandidateFrame frame=candidateFrame.get();
+                if(frame!=null&&found.ownsAutoTarget(p.thisObject)){
+                    frame.autoTargetReads++;
+                    if(!p.hasThrowable()&&p.getResult() instanceof Integer)frame.autoTarget=(Integer)p.getResult();
+                }
+            }
+        }));}catch(Throwable t){failure("日用自动目标观察安装",FanServiceCompat.methodKey(autoTarget),t);}
         int candidateHooks=0,controllerHooks=0;
         for(final Method candidate:found.candidates){
             try{installed.add(XposedBridge.hookMethod(candidate,new XC_MethodHook(){
@@ -188,8 +202,10 @@ public final class FanHook implements IXposedHookLoadPackage {
                     String member=FanServiceCompat.methodKey(candidate);
                     if(p.hasThrowable()){failure("原厂候选调用",member,p.getThrowable());return;}
                     if(!(p.getResult() instanceof Integer))return;
+                    boolean ordinaryTarget=frame!=null&&DailyFanPolicy.matchesAutoTarget((Integer)p.getResult(),frame.autoTarget,
+                            frame.autoTargetReads,controlCycle.inProgress());
                     if(selectedCandidate==null){
-                        if(found.candidates.size()>1&&(frame==null||!frame.strategyRead)){
+                        if(found.candidates.size()>1&&!ordinaryTarget&&(frame==null||!frame.strategyRead)){
                             evidence.success("候选观察",member,"返回="+p.getResult()+"；本次未见策略读取，继续观察",SystemClock.elapsedRealtime());return;
                         }
                         selectedCandidate=candidate;evidence.success("候选定位",member,"已观察原厂调用"+(frame!=null&&frame.strategyRead?"及策略读取":"；唯一入口"),SystemClock.elapsedRealtime());
@@ -205,7 +221,7 @@ public final class FanHook implements IXposedHookLoadPackage {
                             stage="日用候选";
                             // Legacy phase/active continue to describe the charge policy only.
                             lastCandidate=old;active=false;
-                            applyDailyCandidate(found,p,old,day);
+                            applyDailyCandidate(found,p,old,day,ordinaryTarget);
                             return;
                         }
                         stage="自动模式实读";Boolean automatic=null;
@@ -257,13 +273,13 @@ public final class FanHook implements IXposedHookLoadPackage {
                 @Override protected void afterHookedMethod(MethodHookParam p){
                     AppliedDecision d=(AppliedDecision)p.getObjectExtra("acefan.decision");
                     if(p.hasThrowable()){failure("原厂控制调用",FanServiceCompat.methodKey(setter),p.getThrowable());return;}
-                    if(d!=null&&d.dailyResult!=null){
-                        observeDailyRequest(found,p,d.dailyResult);
-                        return;
-                    }
                     if(((Integer)p.args[0])<=0){
                         // An OEM stop also ends a previous session when no new candidate was applied.
                         cancelContinuation();active=false;decisionReason="原厂要求停转，已保留该结果";
+                    }
+                    if(d!=null&&d.dailyResult!=null){
+                        observeDailyRequest(found,p,d.dailyResult);
+                        return;
                     }
                     if(d==null)return;
                     try{
@@ -349,6 +365,7 @@ public final class FanHook implements IXposedHookLoadPackage {
                 }
             });
         }catch(Throwable t){failure("日用配置通知",DailyFanContract.PATH,t);}
+        if(Build.VERSION.SDK_INT>=29)try{Api29.listen(h);}catch(Throwable t){failure("日用热保护监听","PowerManager",t);}
         if(Build.VERSION.SDK_INT>=33)try{Api33.listen(h);}catch(Throwable t){
             XposedBridge.log("ACEFan "+VERSION+": keyguard listener unavailable; using live state, user-present events and sampling");
         }
@@ -362,11 +379,29 @@ public final class FanHook implements IXposedHookLoadPackage {
         XposedBridge.log("ACEFan "+VERSION+": telemetry initialized; enhancement uses live interfaces and per-stage runtime evidence");
     }
 
+    @TargetApi(29)
+    private static final class Api29 {
+        static int thermalStatus(){
+            PowerManager pm=(PowerManager)context.getSystemService(Context.POWER_SERVICE);
+            return pm==null?-1:pm.getCurrentThermalStatus();
+        }
+        static void listen(final Handler handler){
+            PowerManager pm=(PowerManager)context.getSystemService(Context.POWER_SERVICE);
+            if(pm!=null)pm.addThermalStatusListener(command->handler.post(command),status->{
+                DailyFanPolicy.Frame current=daily.current(SystemClock.elapsedRealtime());
+                if(current!=null&&current.hasTarget()){requestRefresh();sampleSoon();}
+            });
+        }
+    }
+
     /** Do not resolve API33 listener types when running Android 9–12. */
+    @TargetApi(33)
     private static final class Api33 {
+        @SuppressLint("MissingPermission")
         static void listen(final Handler h){
             KeyguardManager km=(KeyguardManager)context.getSystemService(Context.KEYGUARD_SERVICE);
-            if(km!=null)km.addKeyguardLockedStateListener(new Executor(){@Override public void execute(Runnable r){h.post(r);}},new KeyguardManager.KeyguardLockedStateListener(){
+            if(km==null||context.checkSelfPermission("android.permission.SUBSCRIBE_TO_KEYGUARD_LOCKED_STATE")!=PackageManager.PERMISSION_GRANTED)return;
+            km.addKeyguardLockedStateListener(new Executor(){@Override public void execute(Runnable r){h.post(r);}},new KeyguardManager.KeyguardLockedStateListener(){
                 @Override public void onKeyguardLockedStateChanged(boolean locked){requestRefresh();sampleSoon();}
             });
         }
@@ -395,7 +430,7 @@ public final class FanHook implements IXposedHookLoadPackage {
             if(!gate.allowed()){active=false;decisionReason=gate.reason;}
             DailyFanPolicy.Frame day=sampleDaily(s,power,dayEpoch);
             boolean dayEnabled=day!=null&&day.config!=null&&day.config.enabled;
-            String dayTrigger=dayEnabled?day.epoch+"|"+day.version+"|"+day.demand+"|"+day.state+"|"+day.fusion.contributorMask:"";
+            String dayTrigger=dayEnabled?day.epoch+"|"+day.version+"|"+day.demand+"|"+day.state+"|"+day.fusion.contributorMask+"|"+day.thermalClear:"";
             if(!dayTrigger.equals(previousDailyTrigger)){previousDailyTrigger=dayTrigger;requestRefresh();}
             long tier=Sampling.interval(gate.allowed(),"允许".equals(hardReason));
             if(dayEnabled)tier=Math.min(tier,Sampling.ACTIVE_MS);
@@ -493,40 +528,54 @@ public final class FanHook implements IXposedHookLoadPackage {
                 oemAllowed=dailyOwnerAllows()&&DailyFanPolicy.healthy(s.optString("fanStatus",""),null);
             }catch(RuntimeException e){failure("日用原厂设置读取","Settings",e);}
         }
+        int thermalStatus=oemAllowed?dailyThermalStatus():-1;
         long now=SystemClock.elapsedRealtime();
         long lastEvent=batteryEventAt;
         double batt=(!s.optBoolean("batteryValid",false)||("battery_sticky".equals(s.optString("batterySource"))
                 && (lastEvent<=0||now-lastEvent>60_000L)))?Double.NaN:s.optDouble("battery",Double.NaN);
         double[] readings={batt,s.optDouble("board",Double.NaN),s.optDouble("fan",Double.NaN),s.optDouble("mos",Double.NaN)};
-        return daily.sample(epoch,power,cfg,version,readings,s.optLong("elapsed",-1L),now,oemAllowed);
+        return daily.sample(epoch,power,cfg,version,readings,s.optLong("elapsed",-1L),now,oemAllowed,thermalStatus);
     }
 
-    private static void applyDailyCandidate(FanServiceCompat found,XC_MethodHook.MethodHookParam p,int old,DailyFanPolicy.Frame day)throws Exception{
-        if(day.demand<=0)return;
+    private static int dailyThermalStatus(){
+        if(Build.VERSION.SDK_INT<29)return -1;
+        try{return Api29.thermalStatus();}
+        catch(RuntimeException e){failure("日用系统热状态读取","PowerManager",e);return -1;}
+    }
+
+    private static void applyDailyCandidate(FanServiceCompat found,XC_MethodHook.MethodHookParam p,int old,
+            DailyFanPolicy.Frame day,boolean ordinaryTarget)throws Exception{
+        if(!day.hasTarget())return;
         String state;
         int chosen=old;
         Integer maximum=null;
-        if(!dailyOwnerAllows()||Boolean.FALSE.equals(found.readAutomatic()))state="oem_blocked";
+        Boolean automatic=found.readAutomatic();
+        if(!dailyOwnerAllows()||Boolean.FALSE.equals(automatic)||(ordinaryTarget&&!Boolean.TRUE.equals(automatic)))state="oem_blocked";
         else if(!DailyFanPolicy.allowedScene(found.readStrategy()))state="scene_blocked";
         else{
-            // The ready frame already required a fresh NORMAL hardware sample; live event can still veto it.
             JSONObject s=snapshot;
-            if(s==null||!DailyFanPolicy.healthy(s.optString("fanStatus",""),found.event()))state="health_blocked";
-            else if(old<=0)state="waiting_oem"; // Temperature is ready; the OEM still owns the start/stop decision.
+            Integer event=found.event();
+            if(s==null||!DailyFanPolicy.healthy(s.optString("fanStatus",""),event))state="health_blocked";
+            else if(ordinaryTarget&&event==null)state="health_blocked";
+            else if(ordinaryTarget&&(!day.thermalClear||dailyThermalStatus()!=PowerManager.THERMAL_STATUS_NONE))state="thermal_blocked";
+            else if(!ordinaryTarget&&day.demand==0)state="auto_target_unverified";
+            else if(!ordinaryTarget&&old<=0)state="waiting_oem";
             else{
                 maximum=found.readMaximum();
                 chosen=DailyFanPolicy.candidate(old,maximum,day.demand);
-                state=chosen>old?"candidate_applied":"oem_level_sufficient";
+                if(maximum<=0||old<0||old>maximum)state="oem_blocked";
+                else if(chosen==0)state="stop_candidate";
+                else state=chosen>old?"candidate_applied":"oem_level_sufficient";
             }
         }
         long now=SystemClock.elapsedRealtime();
         synchronized(daily){
-            if(day!=daily.current(now)||!dailyPowerAvailable())return;
+            if(!day.sameDecision(daily.current(now))||!DailyFanPolicy.fresh(day.sampledAt,now)||!dailyPowerAvailable())return;
             DailyObservation obs=new DailyObservation(day,state,old,chosen,maximum,null,now);
-            if(chosen>old){
+            if(chosen!=old||"stop_candidate".equals(state)||"oem_level_sufficient".equals(state)){
                 AppliedDecision decision=new AppliedDecision(WakeHandoff.OEM,0L,now,obs);
-                p.setResult(chosen);
                 controlCycle.attach(decision);
+                if(chosen!=old)p.setResult(chosen);
             }
             dailyObservation=obs;
         }
@@ -536,8 +585,9 @@ public final class FanHook implements IXposedHookLoadPackage {
         try{
             long now=SystemClock.elapsedRealtime();
             int request=(Integer)p.args[0];
-            boolean accepted=Boolean.TRUE.equals(found.confirmed(p.thisObject))&&Integer.valueOf(request).equals(found.level(p.thisObject));
-            String state=request<=0?"oem_stopped":request<before.candidate?"oem_limited":accepted?"request_confirmed":"request_observed";
+            boolean accepted=request>0&&Boolean.TRUE.equals(found.confirmed(p.thisObject))&&Integer.valueOf(request).equals(found.level(p.thisObject));
+            String state=request==0&&before.candidate==0?"stop_requested":request<=0?"oem_stopped":
+                    request<before.candidate?"oem_limited":request>before.candidate?"oem_override":accepted?"request_confirmed":"request_observed";
             synchronized(daily){
                 if(dailyObservation!=before||!before.matches(daily.current(now),now)||!dailyPowerAvailable())return;
                 dailyObservation=new DailyObservation(before.frame,state,before.original,before.candidate,before.maximum,request,before.at);

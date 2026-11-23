@@ -1,9 +1,9 @@
 package dev.eta.acefan;
 
-/** Pure, opt-in battery-only floor policy. Never asks OEM to turn a stopped fan on. */
+/** Pure, opt-in battery-only temperature policy for the ordinary OEM auto target. */
 final class DailyFanPolicy {
-    static final long FRESH_MS = 15_000L, COOL_MS = 30_000L;
-    static final double HYSTERESIS_C = 1.0;
+    static final long FRESH_MS = 15_000L;
+    private static final double BATTERY_GUARD_C = 45.0, OTHER_SENSOR_GUARD_C = 55.0;
     enum Power { UNKNOWN, EXTERNAL, BATTERY }
 
     static Power power(int plugged, boolean explicitlyDischarging) {
@@ -37,14 +37,21 @@ final class DailyFanPolicy {
         final Fusion fusion;
         final int demand;
         final String state;
-        Frame(long epoch, long version, long at, DailyFanConfig config, Fusion fusion, int demand, String state) {
+        final boolean thermalClear;
+        Frame(long epoch, long version, long at, DailyFanConfig config, Fusion fusion, int demand, String state, boolean thermalClear) {
             this.epoch = epoch; this.version = version; sampledAt = at; this.config = config;
-            this.fusion = fusion; this.demand = demand; this.state = state;
+            this.fusion = fusion; this.demand = demand; this.state = state; this.thermalClear = thermalClear;
+        }
+        boolean hasTarget() { return "ready".equals(state) || "below_threshold".equals(state); }
+        boolean sameDecision(Frame other) {
+            return other != null && epoch == other.epoch && version == other.version && demand == other.demand
+                    && state.equals(other.state) && thermalClear == other.thermalClear
+                    && fusion.contributorMask == other.fusion.contributorMask;
         }
     }
 
-    private long epoch, coolingAt = -1L;
-    private boolean connectedEdge, seenReport, latched;
+    private long epoch;
+    private boolean connectedEdge, seenReport;
     private Power reported = Power.UNKNOWN;
     private Frame frame;
 
@@ -69,11 +76,10 @@ final class DailyFanPolicy {
     }
 
     synchronized boolean invalidate() {
-        boolean hadDemand = frame != null && frame.demand > 0;
+        boolean hadTarget = frame != null && frame.hasTarget();
         frame = null;
         epoch++;
-        resetLatch();
-        return hadDemand;
+        return hadTarget;
     }
 
     synchronized Frame current(long now) {
@@ -83,33 +89,32 @@ final class DailyFanPolicy {
     static boolean fresh(long since, long now) { return since >= 0L && now >= since && now - since <= FRESH_MS; }
 
     synchronized Frame sample(long sampledEpoch, Power sampled, DailyFanConfig config, long version,
-            double[] values, long sampledAt, long now, boolean oemAllowed) {
+            double[] values, long sampledAt, long now, boolean oemAllowed, int systemThermalStatus) {
         if (sampledEpoch != epoch) return null;
         if (!accepts(sampledEpoch, sampled) || !fresh(sampledAt, now)) {
             if (frame != null) invalidate();
             return null;
         }
-        boolean same = frame != null && frame.version == version && fresh(frame.sampledAt, sampledAt);
-        if (!same) resetLatch();
         Fusion fusion = config == null ? new Fusion(Double.NaN, 0) : fuse(config, values);
-        if (same && frame.fusion.contributorMask != fusion.contributorMask) resetLatch();
+        boolean thermalClear = thermalClear(systemThermalStatus, values);
         if (config == null || !config.enabled || !oemAllowed || !FusionTemp.valid(fusion.celsius)) {
-            resetLatch();
             String state = config == null ? "config_unavailable" : !config.enabled ? "disabled"
                     : !oemAllowed ? "oem_blocked" : "temperature_unavailable";
-            return frame = new Frame(epoch, version, sampledAt, config, fusion, 0, state);
+            return frame = new Frame(epoch, version, sampledAt, config, fusion, 0, state, thermalClear);
         }
-        if (!latched) {
-            latched = fusion.celsius >= config.startC;
-        } else if (fusion.celsius < config.startC - HYSTERESIS_C) {
-            if (coolingAt < 0L) coolingAt = sampledAt;
-            if (sampledAt - coolingAt >= COOL_MS) resetLatch();
-        } else coolingAt = -1L;
-        return frame = new Frame(epoch, version, sampledAt, config, fusion, latched ? config.floor : 0,
-                !latched ? "below_threshold" : coolingAt >= 0L ? "cooling" : "ready");
+        boolean above = fusion.celsius > config.startC;
+        return frame = new Frame(epoch, version, sampledAt, config, fusion, above ? config.floor : 0,
+                above ? "ready" : "below_threshold", thermalClear);
     }
 
-    private void resetLatch() { latched = false; coolingAt = -1L; }
+    static boolean thermalClear(int systemThermalStatus, double[] values) {
+        if (systemThermalStatus != 0 || values == null || values.length != DailyFanConfig.CHANNEL_COUNT) return false;
+        for (int channel = 0; channel < values.length; channel++) {
+            double limit = channel == 0 ? BATTERY_GUARD_C : OTHER_SENSOR_GUARD_C;
+            if (!FusionTemp.valid(values[channel]) || values[channel] >= limit) return false;
+        }
+        return true;
+    }
 
     static boolean ownerAllows(String main, String uiState, String mode, String auto, String protection, String abort) {
         return ("1".equals(main) || "3".equals(main)) && !"2".equals(uiState) && "0".equals(mode)
@@ -122,8 +127,12 @@ final class DailyFanPolicy {
         return "NORMAL".equals(hardware) && (event == null || event < 3 || event > 7);
     }
 
+    static boolean matchesAutoTarget(int candidate, Integer autoTarget, int reads, boolean inRefresh) {
+        return inRefresh && reads == 1 && autoTarget != null && candidate >= 0 && autoTarget == candidate;
+    }
+
     static int candidate(int oem, int maximum, int demand) {
-        return oem > 0 && maximum > 0 && demand > 0
-                ? Math.max(oem, Math.min(Math.min(maximum, DailyFanConfig.MAX_LEVEL), demand)) : oem;
+        if (oem < 0 || maximum <= 0 || oem > maximum || demand < 0) return oem;
+        return demand == 0 ? 0 : Math.max(oem, Math.min(Math.min(maximum, DailyFanConfig.MAX_LEVEL), demand));
     }
 }

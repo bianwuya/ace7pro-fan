@@ -114,9 +114,11 @@ public final class FrontPresentationTest {
                 && Double.isNaN(old.dailyFusedTemp), "recent config acknowledgement survives without stale live decision");
         check(live(idle, idle, null, Power.EXTERNAL).dailyStatus(true, true) == DailyStatus.EXTERNAL_POWER,
                 "external power is a different blocker from config sync");
-        String[] states = {"below_threshold", "ready", "waiting_oem", "candidate_applied", "request_observed", "oem_stopped"};
+        String[] states = {"below_threshold", "ready", "waiting_oem", "candidate_applied", "request_observed", "oem_stopped",
+                "thermal_blocked", "auto_target_unverified", "stop_candidate", "stop_requested", "oem_override"};
         DailyStatus[] expected = {DailyStatus.TOO_COOL, DailyStatus.WAITING_CANDIDATE, DailyStatus.OEM_ZERO,
-                DailyStatus.CANDIDATE_ONLY, DailyStatus.REQUEST_OBSERVED, DailyStatus.OEM_STOPPED};
+                DailyStatus.CANDIDATE_ONLY, DailyStatus.REQUEST_OBSERVED, DailyStatus.OEM_STOPPED, DailyStatus.THERMAL_BLOCKED,
+                DailyStatus.AUTO_TARGET_UNVERIFIED, DailyStatus.STOP_CANDIDATE, DailyStatus.STOP_REQUESTED, DailyStatus.OEM_OVERRIDE};
         for (int i = 0; i < states.length; i++) {
             Reading evidence = sample(1000L, "daily", dailyFields(7, i == 0 ? 35.96 : 36.0, 36.0, 1, states[i]), "effective", 0);
             check(live(evidence, evidence, null, Power.BATTERY).dailyStatus(true, true) == expected[i],

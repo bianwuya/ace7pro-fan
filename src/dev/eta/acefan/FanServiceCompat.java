@@ -42,7 +42,7 @@ public final class FanServiceCompat {
     public final Method maxLevel;
     private final List<Method> strategyNames;
     private Object mode;
-    private Method automatic;
+    private Method automatic, autoTarget;
 
     private FanServiceCompat(Object o,Object c,Object p,List<Method> cs,List<Method> gs,List<Method> ss,
             Field choice,Field updated,Field lastEvent,Field currentLevel,Field maximumField,Method maximum,List<Method> names){
@@ -80,6 +80,9 @@ public final class FanServiceCompat {
         List<Method> choices=modeClass==null?new ArrayList<Method>():publicMethods(modeClass,boolean.class);
         if(choices.size()==1)result.automatic=choices.get(0);
         step("原厂自动模式："+(result.automatic==null?"不可用，沿用明确设置与原厂场景":result.automatic));
+        List<Method> targets=result.mode==null?new ArrayList<Method>():publicMethods(modeClass,int.class);
+        if(result.automatic!=null&&targets.size()==1)result.autoTarget=targets.get(0);
+        step("日用自动目标："+(result.autoTarget==null?"不可辨认，仅保留既有正档增强":methodKey(result.autoTarget)));
         return result;
     }
     static FanServiceCompat resolve(Bootstrap boot,Object engine,Class<?> ctrl,Class<?> config,Class<?> strategy,Class<?> context,Class<?> handler)throws Exception{
@@ -162,6 +165,8 @@ public final class FanServiceCompat {
     private static boolean knownScene(String s){return allowedScene(s)||Arrays.asList("ShutDown","PocketMode","TelephonyInHeld").contains(s);}
     public static boolean allowedScene(String s){return Arrays.asList("Common","KeyguardLocked","ChargeWhileKeyguardLocked","SuperCharging").contains(s);}
     public Integer event()throws Exception{return controller!=null&&lastEvent!=null?Integer.valueOf(lastEvent.getInt(controller)):null;}
+    Method autoTarget(){return autoTarget;}
+    boolean ownsAutoTarget(Object instance){return mode!=null&&instance==mode;}
     public Boolean confirmed(Object c)throws Exception{return c!=null&&updated!=null?Boolean.valueOf(updated.getBoolean(c)):null;}
     public Integer level(Object c)throws Exception{return c!=null&&currentLevel!=null?Integer.valueOf(currentLevel.getInt(c)):null;}
     private static Object findOrchestrator(Object engine)throws Exception{

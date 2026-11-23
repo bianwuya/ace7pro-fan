@@ -231,8 +231,8 @@ class MiuixActivity : ComponentActivity() {
         val tabs = listOf("概览", "趋势", "设置")
         val icons = listOf(R.drawable.nav_overview, R.drawable.nav_trend, R.drawable.nav_settings)
         val page = when (route) {
-            "temperature" -> "日用介入温度"
-            "level" -> "最低增强档位"
+                "temperature" -> "日用启停温度"
+                "level" -> "起转最低档位"
             "weights" -> "传感器权重"
             "tools" -> "数据与诊断"
             "report" -> "设备兼容报告"
@@ -450,7 +450,7 @@ private fun statusLine(s: FrontModel.Snapshot?): String {
     if (l.power != FrontPresentation.Power.BATTERY) return "原厂模式 · 供电状态未知"
     val status = l.dailyStatus(s.dailyValid, s.dailyConfig.enabled)
     val detail = if (status == FrontPresentation.DailyStatus.TOO_COOL)
-        "未达 ${FrontPresentation.temperatureText(s.dailyConfig.startC)} °C 介入温度" else status.text
+        "未超过 ${FrontPresentation.temperatureText(s.dailyConfig.startC)} °C" else status.text
     return "日用增强 · $detail"
 }
 
@@ -464,8 +464,8 @@ private fun FanSettings(s: FrontModel.Snapshot?, busy: Boolean, appearance: Int,
     Card(Modifier.fillMaxWidth()) {
         SwitchPreference(title = "启用日用增强", checked = c?.enabled == true, enabled = canEdit,
             onCheckedChange = onDailyEnabled)
-        ValuePreference("日用介入温度", c?.let { "${FrontPresentation.temperatureText(it.startC)} °C" } ?: "—", canEdit) { onDailyEdit("temperature") }
-        ValuePreference("最低增强档位", c?.let { "${it.floor} 档" } ?: "—", canEdit) { onDailyEdit("level") }
+        ValuePreference("日用启停温度", c?.let { "${FrontPresentation.temperatureText(it.startC)} °C" } ?: "—", canEdit) { onDailyEdit("temperature") }
+        ValuePreference("起转最低档位", c?.let { "${it.floor} 档" } ?: "—", canEdit) { onDailyEdit("level") }
         ValuePreference("传感器权重", "编辑", canEdit) { onDailyEdit("weights") }
     }
     if (c == null) SecondaryText(if (s == null) "正在读取配置…" else "日用配置不可读，尚未修改。")
