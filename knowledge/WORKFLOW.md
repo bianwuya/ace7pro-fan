@@ -17,7 +17,9 @@
 | Hook、原厂服务或框架兼容 | 先核对 `COMPATIBILITY.md`；分别记录静态/合成测试、真实 APK 指纹、设备加载和人工功能验收 | 已安装 APK、旧进程回报或一项指纹通过不能替代其他层级 |
 | 本地发布包 | 仅按明确要求生成、检查包和签名清单；安装、推送、打 tag 需分别授权 | 生成产物不等于发布或实机验收 |
 
-项目开发与脚本在 Linux 环境进行；真实 Android 设备核验单独进行。当前已知构建组合为 Android 35 编译工具、Android 28 的 AAPT1 资源打包。构建依赖与签名密钥留在本地，不纳入仓库；不得读取、回显或写入密钥口令/secret。输出、参考 APK 和私有构建材料不应意外提交。
+项目开发与脚本在 Linux 环境进行；真实 Android 设备核验单独进行。`0.7.0` 起固定 JDK 25、Gradle 9.7.1、AGP 9.5.1、Kotlin Compose 2.4.21、SDK 37.2、Build Tools 36.0.0，沿用 APK min28/target35。使用已验证的本地 Gradle/SDK 和 AAPT2；不回退到只打包旧 Java UI。构建依赖与签名密钥留在本地，不纳入仓库；不得读取、回显或写入密钥口令/secret。输出、参考 APK 和私有构建材料不应意外提交。
+
+当前本机准备：在工程根目录执行 `. build/gradle-local-env.sh`（本机已核验的 Gradle/SDK/只读依赖缓存路径，该文件属于忽略目录）；其他主机按 `tools/gradle-build.sh` 设置 `ACEFAN_GRADLE` 与 `ANDROID_HOME`。冷缓存需要明确使用 `ACEFAN_GRADLE_ONLINE=1 sh tools/gradle-build.sh :assembleRelease` 解析项目锁定版本，再做离线 `verify`。`sh build.sh` 以 AGP 的完整 Compose release 为输入，先审计无签名产物，再使用既有证书签名并重新审计。`sh build.sh --unsigned` 只产出离线检查包。
 
 ## 项目管理命令
 

@@ -30,14 +30,16 @@ jobs:
       - uses: actions/setup-java@cf277c60eb25467037889841efdb72551f06f6c3 # v4
         with:
           distribution: temurin
-          java-version: '17'
+          java-version: '25'
       - name: Validate version and required additions/fixes release notes
         run: python3 tools/cloud_release.py plan
       - name: Source gates and offline regression tests
         run: python3 tools/project.py test
-      - name: Prepare public pinned toolchain (no signing material)
+      - name: Prepare JDK 25 / Gradle 9.7.1 / Android SDK toolchain (no signing material)
         run: python3 tools/prepare_ci.py
-      - name: Compile, dex, package and audit unsigned APK
+      - name: Assemble and audit unsigned Compose APK
+        env:
+          ACEFAN_GRADLE_ONLINE: '1' # Cold runner: resolve the pinned plugins and library dependencies.
         run: sh build.sh --unsigned
       - name: Package exact unsigned APK, notes and provenance
         run: python3 tools/cloud_release.py package-unsigned
@@ -72,7 +74,7 @@ jobs:
       - uses: actions/setup-java@cf277c60eb25467037889841efdb72551f06f6c3 # v4
         with:
           distribution: temurin
-          java-version: '17'
+          java-version: '25'
       - name: Fail closed if original signing secrets are not configured
         env:
           ACEFAN_KEYSTORE_B64: ${{ secrets.ACEFAN_KEYSTORE_B64 }}
@@ -89,8 +91,8 @@ jobs:
         with:
           name: acefan-unsigned-${{ github.sha }}
           path: dist/ci
-      - name: Prepare SDK signature audit tools
-        run: python3 tools/prepare_ci.py
+      - name: Prepare SDK signature audit tools (no second APK build)
+        run: python3 tools/prepare_ci.py --audit-only
       - name: Sign same-run artifact with original identity and audit
         env:
           ACEFAN_KEYSTORE_B64: ${{ secrets.ACEFAN_KEYSTORE_B64 }}

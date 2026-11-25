@@ -103,10 +103,10 @@ public final class DiagnosticReport {
                 .append("控制请求调用完成或原厂状态确认不等于实测物理转速。\n");
 
         b.append("\n[6] 当前策略与遥测\n");
-        b.append("增强开关：").append(onOff(in.enabled)).append('\n');
-        b.append("正在增强：").append(onOff(in.active)).append('\n');
-        b.append("阶段：").append(show(in.phase)).append('\n');
-        b.append("决策原因：").append(show(in.reason)).append('\n');
+        b.append("充电增强开关：").append(onOff(in.enabled)).append('\n');
+        b.append("充电增强正在运行：").append(onOff(in.active)).append('\n');
+        b.append("充电阶段：").append(show(in.phase)).append('\n');
+        b.append("充电决策原因：").append(show(in.reason)).append('\n');
         b.append("档位（原厂 / 候选 / 请求 / 驱动 / 有效）：")
                 .append(show(in.oem)).append(" / ").append(show(in.candidate)).append(" / ")
                 .append(show(in.request)).append(" / ").append(show(in.driver)).append(" / ")

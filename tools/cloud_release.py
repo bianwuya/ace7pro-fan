@@ -125,9 +125,11 @@ def package_unsigned():
               'purpose': 'unsigned validation artifact; not installable as an update',
               'oem_reference_test': 'SKIPPED in cloud; no private OEM sample uploaded',
               'toolchain': {'runner': 'ubuntu-24.04' if os.environ.get('GITHUB_ACTIONS') == 'true' else 'local',
-                            'java': subprocess.run(['java', '-version'], stdout=subprocess.PIPE, stderr=subprocess.PIPE).stderr.decode().splitlines()[0],
-                            'sdk_build_tools': '35.0.0' if os.environ.get('GITHUB_ACTIONS') == 'true' else 'local layout',
-                            'compile_platform': 35, 'resource_platform': 28, 'r8': '9.6.0-alpha09', 'xposed': 82},
+                            'java': subprocess.run([project.java_executable(), '-version'], check=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE).stderr.decode().splitlines()[0],
+                            'gradle': '9.7.1', 'agp': '9.5.1', 'kotlin_compose_plugin': '2.4.21',
+                            'compile_sdk': '37.2', 'min_sdk': cfg['min_sdk'], 'target_sdk': cfg['target_sdk'],
+                            'sdk_build_tools': '36.0.0', 'miuix': '0.9.5-beta01', 'activity_compose': '1.13.0',
+                            'xposed_compile_only': 82},
               'validation_scope': 'offline only; no phone, ROM or physical fan validation'}
     (output / 'BUILD_INFO.json').write_text(json.dumps(report, ensure_ascii=False, indent=2) + '\n')
     checksums(output)
@@ -187,7 +189,7 @@ def sign():
             with os.fdopen(fd, 'wb') as f:
                 f.write(data)
         apk = output / (cfg['artifact_prefix'] + version['app_version'] + '.apk')
-        signer = ROOT / 'build-tools/apksigner-extracted/usr/share/java/apksigner-35.0.2.jar'
+        signer = ROOT / 'build-tools/lib/apksigner.jar'
         project.run(['java', '-cp', signer, 'com.android.apksigner.ApkSignerTool', 'sign',
                      '--ks', keyfile, '--ks-key-alias', 'acefan', '--ks-pass', 'file:' + str(passfile),
                      '--out', apk, unsigned])

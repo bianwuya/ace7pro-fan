@@ -30,6 +30,7 @@ public final class Telemetry {
     private static final String THERMAL_ROOT = "/sys/class/thermal";
     private static final String FAN_ROOT = "/sys/class/leds/fan/";
     private static final String[] TYPES = {"battery", "board_temp", "fan_temp", "svooc_mos_btb_usr"};
+    private static final FanRpm FAN_RPM = new FanRpm();
 
     private static final Map<String, String> thermalPath = new HashMap<String, String>();
     private static final Map<String, Boolean> thermalFound = new HashMap<String, Boolean>();
@@ -70,6 +71,13 @@ public final class Telemetry {
         return out;
     }
 
+    static boolean explicitlyDischarging(Intent intent) {
+        return intent != null && intent.getIntExtra(BatteryManager.EXTRA_PLUGGED, -1) == 0
+                && intent.getIntExtra(BatteryManager.EXTRA_STATUS, BatteryManager.BATTERY_STATUS_UNKNOWN)
+                    == BatteryManager.BATTERY_STATUS_DISCHARGING
+                && intent.getBooleanExtra(BatteryManager.EXTRA_PRESENT, false);
+    }
+
     private static void addBattery(JSONObject out, Intent intent) {
         int status = intent == null ? BatteryManager.BATTERY_STATUS_UNKNOWN
                 : intent.getIntExtra(BatteryManager.EXTRA_STATUS, BatteryManager.BATTERY_STATUS_UNKNOWN);
@@ -77,6 +85,8 @@ public final class Telemetry {
         put(out, "plugged", plugged);
         put(out, "status", status);
         put(out, "charging", status == BatteryManager.BATTERY_STATUS_CHARGING);
+        // Daily must distinguish an explicit report of battery power from the legacy default of 0.
+        put(out, "batteryDischarging", explicitlyDischarging(intent));
         // A wireless bit excludes wired classification even if a platform reports combined bits.
         boolean wireless = (plugged & BatteryManager.BATTERY_PLUGGED_WIRELESS) != 0;
         boolean wired = !wireless && (plugged & (BatteryManager.BATTERY_PLUGGED_AC | BatteryManager.BATTERY_PLUGGED_USB)) != 0;
@@ -156,15 +166,46 @@ public final class Telemetry {
         }
     }
 
-    /**
-     * Fan feedback only. RPM and duty ("speed") are intentionally not read: the RPM node is
-     * unreliable on this firmware and a level-derived number must not be presented as RPM.
-     */
+    /** Driver status/level are separate from the deprecated, window-cleared rpm sysfs cache. */
     private static void addFan(JSONObject out) {
-        putNullable(out, "driver", readLong(FAN_ROOT + "level"));
-        putNullable(out, "effective", readLong(FAN_ROOT + "level_eff"));
-        putNullable(out, "state", readLong(FAN_ROOT + "state"));
-        putNullable(out, "fanStatus", readText(FAN_ROOT + "status"));
+        Long driver = readLong(FAN_ROOT + "level");
+        Long effective = readLong(FAN_ROOT + "level_eff");
+        Long state = readLong(FAN_ROOT + "state");
+        String status = readText(FAN_ROOT + "status");
+        putNullable(out, "driver", driver);
+        putNullable(out, "effective", effective);
+        putNullable(out, "state", state);
+        putNullable(out, "fanStatus", status);
+        FanRpm.View view = FAN_RPM.snapshot(System.currentTimeMillis(), SystemClock.elapsedRealtime(),
+                state, effective, readInt(FAN_ROOT + "dbg_rpm"), status);
+        JSONObject rpm = new JSONObject();
+        put(rpm, "source", FanRpm.SOURCE);
+        put(rpm, "observer", view.observer);
+        put(rpm, "quality", view.quality);
+        put(rpm, "state", view.state);
+        putNullable(rpm, "value", FanRpm.valid(view.value) ? view.value : null);
+        putNullable(rpm, "raw", view.raw >= 0 ? view.raw : null);
+        putNullable(rpm, "wall", view.wall > 0 ? view.wall : null);
+        putNullable(rpm, "elapsed", view.elapsed >= 0 ? view.elapsed : null);
+        putNullable(rpm, "level", view.level > 0 ? view.level : null);
+        put(rpm, "generation", view.generation);
+        put(out, "fanRpm", rpm);
+    }
+
+    static void fanRpmObserver(boolean ready) { FAN_RPM.observer(ready); }
+    static boolean fanRpmRequest(int requested) { return FAN_RPM.request(requested); }
+
+    /** Called only from the OEM's existing event callback. No listener or test is started here. */
+    static boolean fanRpmEvent(String path, String state, String raw) {
+        long token = FAN_RPM.token();
+        long wall = System.currentTimeMillis(), elapsed = SystemClock.elapsedRealtime();
+        Long enabled = readLong(FAN_ROOT + "state"), effective = readLong(FAN_ROOT + "level_eff");
+        Integer debug = readInt(FAN_ROOT + "dbg_rpm");
+        String status = readText(FAN_ROOT + "status");
+        // Both bracketing driver reads and cache generation must agree. An edge is not a measurement.
+        if (enabled == null || !enabled.equals(readLong(FAN_ROOT + "state")) || effective == null
+                || !effective.equals(readLong(FAN_ROOT + "level_eff"))) return false;
+        return FAN_RPM.accept(token, path, state, raw, wall, elapsed, enabled, effective, debug, status);
     }
 
     private static String getBootId() {
