@@ -77,7 +77,7 @@ internal fun DailyEditor(field: String, editingBase: FrontModel.Snapshot, snapsh
                     TextField(value = temperature, onValueChange = { if (it.length <= 24) temperature = it },
                         modifier = Modifier.fillMaxWidth(), label = "融合温度（°C）", singleLine = true, enabled = !busy,
                         keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal))
-                    SecondaryText("达到此温度才可抬档；原厂给 0 档时不强制起转。")
+                    SecondaryText("超过设定温度起转；比设定值低至少 1°C 并持续 30 秒才停转。原厂保护优先。")
                 }
             }
         }
@@ -87,7 +87,7 @@ internal fun DailyEditor(field: String, editingBase: FrontModel.Snapshot, snapsh
                     TextField(value = floor, onValueChange = { if (it.length <= 2) floor = it },
                         modifier = Modifier.fillMaxWidth(), label = "档位（1–20）", singleLine = true, enabled = !busy,
                         keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number))
-                    SecondaryText("受原厂档位上限与保护约束，不降低原厂档位。")
+                    SecondaryText("超过启停温度时的最低档；原厂限档和保护仍生效。")
                 }
             }
         }

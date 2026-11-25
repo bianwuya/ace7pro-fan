@@ -25,13 +25,15 @@ public final class FrontPresentation {
         CONFIG_UNAVAILABLE("设置不可读"), DISABLED("未启用"), POWER_UNKNOWN("未确认电池放电"),
         EXTERNAL_POWER("外部供电时不介入"), RELOAD("模块待重载"), HOOK_READ_FAILED("模块未能读取设置"),
         WAITING_CONFIG("等待模块读取当前设置"), WAITING_SAMPLE("已读取设置 · 等待新鲜回报"),
-        TOO_COOL("未达介入温度"), WAITING_CANDIDATE("已达温 · 等待原厂计算"),
+        TOO_COOL("未超过启停温度"), WAITING_CANDIDATE("等待原厂计算日用档位"),
         OEM_ZERO("等待原厂起转"), OEM_SUFFICIENT("原厂档位已足够"),
         OEM_BLOCKED("原厂设置或保护未允许"), SCENE_BLOCKED("原厂当前场景不允许"),
         HEALTH_BLOCKED("风扇健康状态未通过"), NO_TEMPERATURE("无可用参与温度"),
+        THERMAL_BLOCKED("热状态异常或未知 · 交还原厂"), AUTO_TARGET_UNVERIFIED("未确认普通自动档 · 保留原厂"),
+        STOP_CANDIDATE("停转目标已计算"), STOP_REQUESTED("已请求停转"),
         COOLING("降温确认中"), CANDIDATE_ONLY("已抬高候选 · 等待控制反馈"),
         REQUEST_OBSERVED("已观察到控制请求"), REQUEST_CONFIRMED("原厂已确认控制请求"),
-        OEM_STOPPED("原厂请求停转"), OEM_LIMITED("原厂限制了档位");
+        OEM_STOPPED("原厂请求停转"), OEM_LIMITED("原厂限制了档位"), OEM_OVERRIDE("原厂采用其他档位");
 
         public final String text;
         DailyStatus(String text) { this.text = text; }
@@ -113,12 +115,17 @@ public final class FrontPresentation {
                 case "oem_blocked": return DailyStatus.OEM_BLOCKED;
                 case "scene_blocked": return DailyStatus.SCENE_BLOCKED;
                 case "health_blocked": return DailyStatus.HEALTH_BLOCKED;
+            case "thermal_blocked": return DailyStatus.THERMAL_BLOCKED;
+            case "auto_target_unverified": return DailyStatus.AUTO_TARGET_UNVERIFIED;
+            case "stop_candidate": return DailyStatus.STOP_CANDIDATE;
+            case "stop_requested": return DailyStatus.STOP_REQUESTED;
                 case "temperature_unavailable": return DailyStatus.NO_TEMPERATURE;
                 case "cooling": return DailyStatus.COOLING;
                 case "candidate_applied": return DailyStatus.CANDIDATE_ONLY;
                 case "request_observed": return DailyStatus.REQUEST_OBSERVED;
                 case "request_confirmed": return DailyStatus.REQUEST_CONFIRMED;
                 case "oem_stopped": return DailyStatus.OEM_STOPPED;
+            case "oem_override": return DailyStatus.OEM_OVERRIDE;
                 case "oem_limited": return DailyStatus.OEM_LIMITED;
                 default: return DailyStatus.WAITING_SAMPLE;
             }
@@ -299,7 +306,8 @@ public final class FrontPresentation {
             case "disabled": case "config_unavailable": case "oem_blocked": case "temperature_unavailable":
             case "below_threshold": case "cooling": case "ready": case "waiting_oem": case "scene_blocked":
             case "health_blocked": case "candidate_applied": case "oem_level_sufficient": case "oem_stopped":
-            case "oem_limited": case "request_confirmed": case "request_observed": return state;
+            case "oem_limited": case "request_confirmed": case "request_observed": case "thermal_blocked":
+            case "auto_target_unverified": case "stop_candidate": case "stop_requested": case "oem_override": return state;
             default: return "";
         }
     }

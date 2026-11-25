@@ -15,5 +15,6 @@ public final class ControlCycle<T> {
         else{if(t.pending!=null)t.parent.pending=t.pending;active.set(t.parent);}
     }
     public boolean attach(T value){Token<T> t=active.get();if(t==null)return false;t.pending=value;return true;}
+    boolean inProgress(){return active.get()!=null;}
     public T take(){Token<T> t=active.get();if(t==null)return null;T value=t.pending;t.pending=null;return value;}
 }

@@ -194,14 +194,8 @@ level      = target   (chargingAc=0, mode=default)
 
 ## 7. 对改造方案的意义
 
-现有 Eta 模块只在 exsystemservice 候选层做 `max(原厂, min(上限, 需求))`，
-位于 horae 下游，因此：
-
-| 能力 | 可行性 | 落点 |
-|---|---|---|
-| 最低启动档位（floor） | ✅ 可做 | `FanHook` 候选回调，`old > 0` 时抬到 floor |
-| 最低启动温度 | ✅ 可做 | 曲线前加温度门控，保持 1 °C 迟滞 + 30 s |
-| 自定义传感器 | ✅ 可做 | `Telemetry` 已并行采 batt/board/fan/mos |
+旧版日用在 exsystemservice 候选层只抬原厂正档；这不等于用户可设定实际启停温度。
+从 `0.7.2` 起的日用规则、普通自动目标证据、原厂保护和验收边界见[日用风扇后端](DAILY-FAN.md)，不向 `horae` 写入设置。
 
 **不需要**、也**不应**去改 horae 的加密配置或 native 二进制。
 

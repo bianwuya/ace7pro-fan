@@ -3,9 +3,9 @@ package dev.eta.acefan;
 /** Single source for build strings shared by the UI and the hook. */
 public final class BuildInfo {
     /** Version of the whole APK / UI. */
-    public static final String APP_VERSION = "0.7.2-rpm-events";
+    public static final String APP_VERSION = "0.7.4-rpm-hold";
     /** Version of the hook policy that is actually loaded in the target process. */
-    public static final String HOOK_VERSION = "0.6.3-rpm-events";
+    public static final String HOOK_VERSION = "0.6.5-rpm-hold";
 
     private BuildInfo() { }
 }

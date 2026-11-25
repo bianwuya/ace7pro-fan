@@ -1,9 +1,11 @@
 package dev.eta.acefan
 
+import android.content.ActivityNotFoundException
 import android.content.ClipData
 import android.content.ClipboardManager
 import android.content.Context
 import android.content.Intent
+import android.net.Uri
 import android.os.Bundle
 import android.widget.Toast
 import androidx.activity.ComponentActivity
@@ -229,8 +231,8 @@ class MiuixActivity : ComponentActivity() {
         val tabs = listOf("概览", "趋势", "设置")
         val icons = listOf(R.drawable.nav_overview, R.drawable.nav_trend, R.drawable.nav_settings)
         val page = when (route) {
-            "temperature" -> "日用介入温度"
-            "level" -> "最低增强档位"
+                "temperature" -> "日用启停温度"
+                "level" -> "起转最低档位"
             "weights" -> "传感器权重"
             "tools" -> "数据与诊断"
             "report" -> "设备兼容报告"
@@ -282,7 +284,14 @@ class MiuixActivity : ComponentActivity() {
                                 onManager = {
                                     if (!FrameworkCompat.openIndependent(this@MiuixActivity) && !FrameworkCompat.openParasitic(this@MiuixActivity))
                                         toast("未找到可打开的 LSPosed 入口")
-                                }, onReport = ::openReport, onCsv = { csvPicker.launch("ace7pro-fan-telemetry.csv") },
+                                }, onReport = ::openReport, onGitHub = {
+                                    try {
+                                        startActivity(Intent(Intent.ACTION_VIEW, Uri.parse("https://github.com/bianwuya/ace7pro-fan"))
+                                            .addCategory(Intent.CATEGORY_BROWSABLE))
+                                    } catch (_: ActivityNotFoundException) {
+                                        toast("未找到可打开链接的应用：bianwuya/ace7pro-fan")
+                                    }
+                                }, onCsv = { csvPicker.launch("ace7pro-fan-telemetry.csv") },
                                 onClear = { clearDialog = true })
                             "report" -> {
                                 Card(Modifier.fillMaxWidth()) {
@@ -461,7 +470,7 @@ private fun statusLine(s: FrontModel.Snapshot?): String {
     if (l.power != FrontPresentation.Power.BATTERY) return "原厂模式 · 供电状态未知"
     val status = l.dailyStatus(s.dailyValid, s.dailyConfig.enabled)
     val detail = if (status == FrontPresentation.DailyStatus.TOO_COOL)
-        "未达 ${FrontPresentation.temperatureText(s.dailyConfig.startC)} °C 介入温度" else status.text
+        "未超过 ${FrontPresentation.temperatureText(s.dailyConfig.startC)} °C" else status.text
     return "日用增强 · $detail"
 }
 
@@ -475,8 +484,8 @@ private fun FanSettings(s: FrontModel.Snapshot?, busy: Boolean, appearance: Int,
     Card(Modifier.fillMaxWidth()) {
         SwitchPreference(title = "启用日用增强", checked = c?.enabled == true, enabled = canEdit,
             onCheckedChange = onDailyEnabled)
-        ValuePreference("日用介入温度", c?.let { "${FrontPresentation.temperatureText(it.startC)} °C" } ?: "—", canEdit) { onDailyEdit("temperature") }
-        ValuePreference("最低增强档位", c?.let { "${it.floor} 档" } ?: "—", canEdit) { onDailyEdit("level") }
+        ValuePreference("日用启停温度", c?.let { "${FrontPresentation.temperatureText(it.startC)} °C" } ?: "—", canEdit) { onDailyEdit("temperature") }
+        ValuePreference("起转最低档位", c?.let { "${it.floor} 档" } ?: "—", canEdit) { onDailyEdit("level") }
         ValuePreference("传感器权重", "编辑", canEdit) { onDailyEdit("weights") }
     }
     if (c == null) SecondaryText(if (s == null) "正在读取配置…" else "日用配置不可读，尚未修改。")
@@ -510,11 +519,12 @@ internal fun ValuePreference(title: String, value: String, enabled: Boolean = tr
 
 @Composable
 private fun ToolsPage(s: FrontModel.Snapshot?, onRefresh: () -> Unit, onManager: () -> Unit, onReport: () -> Unit,
-                      onCsv: () -> Unit, onClear: () -> Unit) {
+                      onGitHub: () -> Unit, onCsv: () -> Unit, onClear: () -> Unit) {
     Card(Modifier.fillMaxWidth()) {
         ArrowPreference(title = "刷新数据", onClick = onRefresh)
         ArrowPreference(title = "打开 LSPosed", onClick = onManager)
         ArrowPreference(title = "模块与设备兼容报告", onClick = onReport)
+        ArrowPreference(title = "GitHub 源码与适配", onClick = onGitHub)
     }
     Card(Modifier.fillMaxWidth()) {
         ArrowPreference(title = "导出历史 CSV", onClick = onCsv)

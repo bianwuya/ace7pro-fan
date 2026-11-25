@@ -31,7 +31,9 @@
 1. tag 的版本号去掉 `v` 后，必须与 `src/dev/eta/acefan/BuildInfo.java` 的 `APP_VERSION`、`AndroidManifest.xml` 的 `versionName` 及 `releases/<APP_VERSION>/NOTES.md` 路径一致；NOTES 结构也必须符合上面的规则。
 2. tag 对应提交必须已位于 `main` 历史中；不得从未合入 main 的提交发布。
 3. 当前 `AndroidManifest.xml` 的 `versionCode` 必须严格大于之前版本 tag 的 `versionCode`；不能复用或降低已发布版本号。
-4. 构建与签名结果的公开证书 SHA-256 必须匹配 [`project.json`](../project.json) 中固定的 `signer_certificate_sha256`。该值是公开身份校验，不是密钥。当前固定指纹为 `e3977f9ff13304e9a48106cd8b2c3e68abe8ea50cbba5ad90b118500265898d9`。
+4. 构建与签名结果的公开证书 SHA-256 必须匹配 [`project.json`](../project.json) 中固定的 `signer_certificate_sha256`。该值是公开身份校验，不是密钥。当前固定指纹为 `2623f23ea49724141fb2e194f835947e7b4cd74da37f7887c22947fc7775808d`（0.6.0 起手机已装包使用的 pilot 证书；0.3.x 时期为 `e397…98d9`）。
+
+> **2026-11-23 实测：** tag `v0.7.1-fusion-fix` 的签名 job 因 `release-signing` 环境 Secrets 仍是 0.3.x 的 `e397…98d9` 而失败关闭（`APK signing identity differs from pinned public certificate`），未生成 Draft、未错签。要恢复云端同签名 Draft，必须把该环境的 Secret 更新为 pilot 密钥，或经用户确认改回 `e397…` 身份并接受手机上需卸载重装。
 
 版本更新时同步修改 `APP_VERSION` 与 Manifest 的 `versionName`，并增加 Manifest `versionCode`；当 Hook 代码/协议发生变化时更新 `HOOK_VERSION`。新增和修复要逐项写入对应版本的 NOTES，并准确列出验证与尚未验证事项。
 

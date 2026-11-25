@@ -1,8 +1,10 @@
 # 风扇测速证据与保持语义
 
-## 0.7.2 用户需求与边界
+## 0.7.4 集成与原始需求边界
 
 2026-11-26 用户要求：新增实际转速读取、弃用旧不稳定读取；传感器曲线及充电模式不折叠，传感器位于档位曲线上方。用户补充：本档位实际测试到的速度持续显示，到下一次档位更新才更新测速曲线。
+
+此次基于用户指定云端 `fix/fan-0.7.3-hysteresis` 的 `691bbe4` 增量合并；日用双向启停、1°C 回差和 30 秒降温确认、原厂保护与 GitHub 入口保留。最终 App `0.7.4-rpm-hold` / versionCode 21，Hook `0.6.5-rpm-hold`。原 `0.7.2-rpm-events` 是未安装的中间交付。
 
 实施前已核对调用方与数据链：`FanHook` / `Telemetry` → UID 校验的 `DataProvider` JSON → `FrontModel` / `FrontPresentation` → Compose 概览与 `FanTrends`，CSV/报告由 `FrontExtras` 导出。只追加可选遥测字段，不改数据库 v3、配置字段/默认值、历史数据、日用与充电控制策略、原厂保护、权限或监听生命周期。基线原有 19 份受影响文件与哈希保存在忽略目录 `build/0.7.2-rpm-events/before/`，不丢弃既有未提交改动。
 

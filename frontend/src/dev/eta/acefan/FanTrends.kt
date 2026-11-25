@@ -51,7 +51,7 @@ internal fun FanTrends(snapshot: FrontModel.Snapshot?, minutes: Int, onMinutes: 
     val fusion = remember(rows, colors.primary, colors.onSurfaceVariantSummary) {
         listOf(Line("融合温度", colors.primary, rows.map {
             if (it.mode == FrontPresentation.Mode.DAILY) it.dailyFusedTemp else it.chargeFusedTemp
-        }), Line("日用介入温度", colors.onSurfaceVariantSummary, rows.map { it.dailyStartTemp }, dashed = true))
+    }), Line("日用温度阈值", colors.onSurfaceVariantSummary, rows.map { it.dailyStartTemp }, dashed = true))
     }
     val levels = remember(rows, colors.primary) { listOf(Line("驱动反馈", colors.primary, rows.map { it.effectiveLevel }, step = true)) }
     TrendCard("融合温度", "°C", rows, fusion, end, minutes, missing, levels = false)
