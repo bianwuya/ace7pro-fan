@@ -7,8 +7,10 @@
 - 云端来源为用户指定的 `origin/fix/fan-0.7.3-hysteresis`，提交 `691bbe4fe988fd15751da6bf780b87822052b553`；手机已有 App `0.7.3-fusion-hysteresis` / versionCode 20，已装 APK SHA256 `15bc31d5f0fdcf06188581aaf0c1df95cdc465bcf115131a7b7c1208e59cda40` 与该分支记录一致。原本的 `0.7.2-rpm-events` 中间包未降级安装。
 - 先用 `68a1505` 保存本地已有功能与测速增量，再三方合入云端修复分支；完整改前快照在忽略目录 `build/incremental-0.7.4/before/`。无 reset/stash/强推，不丢弃已有源码。
 - App `0.7.4-rpm-hold` / versionCode 21，Hook `0.6.5-rpm-hold`。云端 `DailyFanPolicy` 及其回归、`FanServiceCompat`、`ControlCycle`、`DataProvider`、`ChargeCurve` 均逐字保留，涵盖双向启停、1°C 回差和 30 秒降温确认、原厂保护与数据兼容；保留 GitHub 适配入口。只在遥测追加 FG 实测保持、取消两处折叠及调整曲线顺序。
-- 合并后 11 组 Java 回归通过：日用策略 341 项、测速 39 项、调用关联 13 项及原有充电/交还/采样/接口/报告/历史。完整构建、签名审计和覆盖安装结果待本节后续回填；此刻尚未安装、尚未推送主分支。
-- 用户已明确要求升级后直接合并为 GitHub `main`；先完成验证和同签名覆盖安装，再正常推送主分支，不打 tag/发布 APK，不由本次操作重启设备或原厂服务。测速运行与降温后的物理启停仍待用户重启后实测。
+- 构建源码提交 `b561b8dae1b0a324623217bccd038a7a71b4d53f`（双父合并，保留云端修复分支历史）；47 项 Python、11 组 Java 回归、Compose Kotlin/Java 编译、AGP Release/lintVital、unsigned 与原签名/v3 APK 审计全部通过。日用策略 341 项、测速 39 项、调用关联 13 项；构建日志 `/data/local/tmp/eta/daemon/job_62fbe7c6.log`。
+- 2026-11-26 02:24:20 UTC+8，已以 `pm install -r --user 0` 从 0.7.3 同签名升级为 0.7.4 / versionCode 21，PackageManager 返回 Success。安装包及已装 base.apk 回读 SHA256 均为 `ca11e6a920b24e2e8414a1d93d6c468bf728ea5a7eb9236c2cc7548e2e838e94`；日用 v8（已启用、36°C、10 档、权重 60:0:40:0）和充电 v1（已启用、33°C）逐字回读一致，原厂服务 PID 8184 未变。安装后最新回报 Hook `0.6.4-daily-hysteresis`，不把安装当新 Hook 已加载；用户正常重启后再验收 `0.6.5-rpm-hold`。
+- APK、说明、构建/安装身份及校验清单保存在 `Download/eta/工作区产物/ace7pro-fan/0.7.4-rpm-hold/`。未卸载/清数据、改 LSPosed/原厂开关、重启/强杀原厂服务；未实测新 UI 或本版 FG 接收稳定性。
+- 用户已明确要求升级后直接合并为 GitHub `main`；已完成验证和同签名覆盖安装，接下来正常推送主分支，不打 tag/发布 APK，不由本次操作重启设备或原厂服务。测速运行与降温后的物理启停仍待用户重启后实测。
 
 ## 0.7.2-rpm-events：本地更新包已构建，测速运行待验（2026-11-26）
 
