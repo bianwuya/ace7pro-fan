@@ -10,7 +10,7 @@
 - 构建源码提交 `b561b8dae1b0a324623217bccd038a7a71b4d53f`（双父合并，保留云端修复分支历史）；47 项 Python、11 组 Java 回归、Compose Kotlin/Java 编译、AGP Release/lintVital、unsigned 与原签名/v3 APK 审计全部通过。日用策略 341 项、测速 39 项、调用关联 13 项；构建日志 `/data/local/tmp/eta/daemon/job_62fbe7c6.log`。
 - 2026-11-26 02:24:20 UTC+8，已以 `pm install -r --user 0` 从 0.7.3 同签名升级为 0.7.4 / versionCode 21，PackageManager 返回 Success。安装包及已装 base.apk 回读 SHA256 均为 `ca11e6a920b24e2e8414a1d93d6c468bf728ea5a7eb9236c2cc7548e2e838e94`；日用 v8（已启用、36°C、10 档、权重 60:0:40:0）和充电 v1（已启用、33°C）逐字回读一致，原厂服务 PID 8184 未变。安装后最新回报 Hook `0.6.4-daily-hysteresis`，不把安装当新 Hook 已加载；用户正常重启后再验收 `0.6.5-rpm-hold`。
 - APK、说明、构建/安装身份及校验清单保存在 `Download/eta/工作区产物/ace7pro-fan/0.7.4-rpm-hold/`。未卸载/清数据、改 LSPosed/原厂开关、重启/强杀原厂服务；未实测新 UI 或本版 FG 接收稳定性。
-- 用户已明确要求升级后直接合并为 GitHub `main`；已完成验证和同签名覆盖安装，接下来正常推送主分支，不打 tag/发布 APK，不由本次操作重启设备或原厂服务。测速运行与降温后的物理启停仍待用户重启后实测。
+- 用户已明确要求升级后直接合并为 GitHub `main`；本地 main 已合并并完成验证和同签名覆盖安装。两次正常 HTTPS 推送（含一次 HTTP/1.1 对照）均在 TCP/TLS 已完成后等待响应超时，未确认远端改变；本 Linux 无 credential helper、GitHub CLI 登录/Token 或 SSH 身份，共享浏览器也未登录。GitHub 远端 main 仍未同步，需本人完成写入授权或从已登录电脑推送。本地完整 Git bundle 随安装交付，不打 tag/发布 APK，不由本次操作重启设备或原厂服务。测速运行与降温后的物理启停仍待用户重启后实测。
 
 ## 0.7.2-rpm-events：本地更新包已构建，测速运行待验（2026-11-26）
 
