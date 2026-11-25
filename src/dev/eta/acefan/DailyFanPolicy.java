@@ -3,6 +3,8 @@ package dev.eta.acefan;
 /** Pure, opt-in battery-only temperature policy for the ordinary OEM auto target. */
 final class DailyFanPolicy {
     static final long FRESH_MS = 15_000L;
+    private static final long COOL_CONFIRM_MS = 30_000L;
+    private static final double HYSTERESIS_C = 1.0;
     private static final double BATTERY_GUARD_C = 45.0, OTHER_SENSOR_GUARD_C = 55.0;
     enum Power { UNKNOWN, EXTERNAL, BATTERY }
 
@@ -42,7 +44,7 @@ final class DailyFanPolicy {
             this.epoch = epoch; this.version = version; sampledAt = at; this.config = config;
             this.fusion = fusion; this.demand = demand; this.state = state; this.thermalClear = thermalClear;
         }
-        boolean hasTarget() { return "ready".equals(state) || "below_threshold".equals(state); }
+        boolean hasTarget() { return "ready".equals(state) || "cooling".equals(state) || "below_threshold".equals(state); }
         boolean sameDecision(Frame other) {
             return other != null && epoch == other.epoch && version == other.version && demand == other.demand
                     && state.equals(other.state) && thermalClear == other.thermalClear
@@ -50,7 +52,7 @@ final class DailyFanPolicy {
         }
     }
 
-    private long epoch;
+    private long epoch, coolingSince = -1L;
     private boolean connectedEdge, seenReport;
     private Power reported = Power.UNKNOWN;
     private Frame frame;
@@ -78,6 +80,7 @@ final class DailyFanPolicy {
     synchronized boolean invalidate() {
         boolean hadTarget = frame != null && frame.hasTarget();
         frame = null;
+        coolingSince = -1L;
         epoch++;
         return hadTarget;
     }
@@ -98,13 +101,22 @@ final class DailyFanPolicy {
         Fusion fusion = config == null ? new Fusion(Double.NaN, 0) : fuse(config, values);
         boolean thermalClear = thermalClear(systemThermalStatus, values);
         if (config == null || !config.enabled || !oemAllowed || !FusionTemp.valid(fusion.celsius)) {
+            coolingSince = -1L;
             String state = config == null ? "config_unavailable" : !config.enabled ? "disabled"
                     : !oemAllowed ? "oem_blocked" : "temperature_unavailable";
             return frame = new Frame(epoch, version, sampledAt, config, fusion, 0, state, thermalClear);
         }
-        boolean above = fusion.celsius > config.startC;
-        return frame = new Frame(epoch, version, sampledAt, config, fusion, above ? config.floor : 0,
-                above ? "ready" : "below_threshold", thermalClear);
+        boolean continuing = thermalClear && frame != null && frame.thermalClear && frame.demand > 0
+                && frame.version == version && config.sameSettings(frame.config)
+                && frame.fusion.contributorMask == fusion.contributorMask && fresh(frame.sampledAt, sampledAt);
+        boolean running = continuing || fusion.celsius > config.startC;
+        if (continuing && fusion.celsius <= config.startC - HYSTERESIS_C) {
+            if (coolingSince < 0L) coolingSince = sampledAt;
+            if (sampledAt - coolingSince >= COOL_CONFIRM_MS) running = false;
+        } else coolingSince = -1L;
+        if (!running) coolingSince = -1L;
+        return frame = new Frame(epoch, version, sampledAt, config, fusion, running ? config.floor : 0,
+                !running ? "below_threshold" : coolingSince >= 0L ? "cooling" : "ready", thermalClear);
     }
 
     static boolean thermalClear(int systemThermalStatus, double[] values) {

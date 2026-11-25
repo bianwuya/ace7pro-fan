@@ -13,6 +13,59 @@ public final class DailyFanPolicyTest {
     static double[] batt(double t) { return new double[]{t,Double.NaN,Double.NaN,Double.NaN}; }
     static void demand(DailyFanPolicy.Frame f,int level) { expect(f!=null&&f.demand==level,"expected demand "+level+", got "+(f==null?"null":f.demand)); }
 
+    static DailyFanPolicy.Frame atTemperature(DailyFanPolicy policy, DailyFanConfig config, long when, double temperature) {
+        return at(policy,config,4,when,temperature,temperature,temperature,temperature);
+    }
+
+    static void stopsOnlyAfterSustainedCooling() {
+        DailyFanPolicy policy = new DailyFanPolicy();
+        DailyFanConfig config = cfg(36,10,1,1,1,1);
+        demand(atTemperature(policy,config,1000,36.0),0);
+        demand(atTemperature(policy,config,2000,36.1),10);
+        demand(atTemperature(policy,config,3000,35.9),10);
+        demand(atTemperature(policy,config,4000,35.0),10);
+        demand(atTemperature(policy,config,9000,34.9),10);
+        demand(atTemperature(policy,config,14000,35.1),10);
+        DailyFanPolicy.Frame cooling = atTemperature(policy,config,19000,35.0);
+        demand(cooling,10);
+        expect("cooling".equals(cooling.state)&&cooling.hasTarget()&&DailyFanPolicy.candidate(0,20,cooling.demand)==10,
+                "confirmed auto target must keep spinning during cooling");
+        for(long time=24000;time<49000;time+=5000) demand(atTemperature(policy,config,time,34.9),10);
+        demand(atTemperature(policy,config,48999,35.0),10);
+        DailyFanPolicy.Frame stopped = atTemperature(policy,config,49000,35.0);
+        demand(stopped,0);
+        expect(stopped.hasTarget()&&DailyFanPolicy.candidate(8,20,stopped.demand)==0,"30 s of cooling actively stops the OEM target");
+        demand(atTemperature(policy,config,50000,35.9),0);
+        demand(atTemperature(policy,config,51000,36.0),0);
+        demand(atTemperature(policy,config,52000,36.1),10);
+    }
+
+    static void coolingDoesNotSurviveInterruptedSamples() {
+        DailyFanConfig config = cfg(36,10,1,0,1,0);
+        for(int interruption=0;interruption<6;interruption++){
+            DailyFanPolicy policy = new DailyFanPolicy();
+            demand(atTemperature(policy,config,1000,37),10);
+            demand(atTemperature(policy,config,6000,34),10);
+            demand(atTemperature(policy,config,16000,34),10);
+            long next = 22000;
+            switch(interruption){
+                case 0: next = 32000; break;
+                case 1: expect(policy.powerEdge(true),"power edge releases cooling target"); policy.powerEdge(false); break;
+                case 2: demand(at(policy,null,-1,20000,batt(34)),0); break;
+                case 3: demand(at(policy,config,4,20000,34,34,Double.NaN,34),0); break;
+                case 4:
+                    DailyFanPolicy.Frame thermal = policy.sample(policy.epoch(),DailyFanPolicy.Power.BATTERY,
+                            config,4,new double[]{34,34,34,34},20000,20000,true,1);
+                    expect(!thermal.thermalClear,"thermal guard withdraws cooling continuity");
+                    break;
+                default: demand(at(policy,config,5,20000,34,34,34,34),0); break;
+            }
+            DailyFanPolicy.Frame after = atTemperature(policy,config,next,35.8);
+            demand(after,0);
+            expect("below_threshold".equals(after.state),"a new session cannot inherit an earlier cooling target");
+        }
+    }
+
     static void replayDeviceWeights() {
         DailyFanPolicy policy = new DailyFanPolicy();
         double[] readings = {32.7,37.273,36.442,39.093};
@@ -31,13 +84,15 @@ public final class DailyFanPolicyTest {
         expect(DailyFanPolicy.candidate(6,20,fused.demand)==10,"an eligible lower positive candidate can be raised");
         expect(DailyFanPolicy.candidate(10,20,fused.demand)==10&&DailyFanPolicy.candidate(12,20,fused.demand)==12,"the floor does not change an adequate OEM level");
         DailyFanPolicy.Frame cooled = at(policy,fourChannels,4,2500,32.7,36.4,35.1,39.2);
-        demand(cooled,0);
-        expect(cooled.hasTarget()&&DailyFanPolicy.candidate(8,20,cooled.demand)==0,"same profile stops on the first cooler sample");
+        demand(cooled,10);
+        expect(cooled.hasTarget()&&DailyFanPolicy.candidate(0,20,cooled.demand)==10,"same profile stays on during a small dip");
         expect(policy.sample(policy.epoch(),DailyFanPolicy.Power.EXTERNAL,fourChannels,4,readings,3000,3000,true,0)==null,
                 "the same temperature cannot trigger the daily route on USB power");
     }
 
     public static void main(String[] args) {
+        stopsOnlyAfterSustainedCooling();
+        coolingDoesNotSurviveInterruptedSamples();
         replayDeviceWeights();
         // Reproduce the saved 36 C / level 10 profile with one valid value above the threshold
         // that is not assigned any weight. The explicit enable action must preserve every setting.

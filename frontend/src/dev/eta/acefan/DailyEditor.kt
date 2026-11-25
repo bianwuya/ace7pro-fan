@@ -77,7 +77,7 @@ internal fun DailyEditor(field: String, editingBase: FrontModel.Snapshot, snapsh
                     TextField(value = temperature, onValueChange = { if (it.length <= 24) temperature = it },
                         modifier = Modifier.fillMaxWidth(), label = "融合温度（°C）", singleLine = true, enabled = !busy,
                         keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal))
-                    SecondaryText("普通自动模式下，低于或等于阈值停转，高于阈值起转；原厂保护优先。")
+                    SecondaryText("超过设定温度起转；比设定值低至少 1°C 并持续 30 秒才停转。原厂保护优先。")
                 }
             }
         }

@@ -1,9 +1,11 @@
 package dev.eta.acefan
 
+import android.content.ActivityNotFoundException
 import android.content.ClipData
 import android.content.ClipboardManager
 import android.content.Context
 import android.content.Intent
+import android.net.Uri
 import android.os.Bundle
 import android.widget.Toast
 import androidx.activity.ComponentActivity
@@ -284,7 +286,14 @@ class MiuixActivity : ComponentActivity() {
                                 onManager = {
                                     if (!FrameworkCompat.openIndependent(this@MiuixActivity) && !FrameworkCompat.openParasitic(this@MiuixActivity))
                                         toast("未找到可打开的 LSPosed 入口")
-                                }, onReport = ::openReport, onCsv = { csvPicker.launch("ace7pro-fan-telemetry.csv") },
+                                }, onReport = ::openReport, onGitHub = {
+                                    try {
+                                        startActivity(Intent(Intent.ACTION_VIEW, Uri.parse("https://github.com/bianwuya/ace7pro-fan"))
+                                            .addCategory(Intent.CATEGORY_BROWSABLE))
+                                    } catch (_: ActivityNotFoundException) {
+                                        toast("未找到可打开链接的应用：bianwuya/ace7pro-fan")
+                                    }
+                                }, onCsv = { csvPicker.launch("ace7pro-fan-telemetry.csv") },
                                 onClear = { clearDialog = true })
                             "report" -> {
                                 Card(Modifier.fillMaxWidth()) {
@@ -500,11 +509,12 @@ internal fun ValuePreference(title: String, value: String, enabled: Boolean = tr
 
 @Composable
 private fun ToolsPage(s: FrontModel.Snapshot?, onRefresh: () -> Unit, onManager: () -> Unit, onReport: () -> Unit,
-                      onCsv: () -> Unit, onClear: () -> Unit) {
+                      onGitHub: () -> Unit, onCsv: () -> Unit, onClear: () -> Unit) {
     Card(Modifier.fillMaxWidth()) {
         ArrowPreference(title = "刷新数据", onClick = onRefresh)
         ArrowPreference(title = "打开 LSPosed", onClick = onManager)
         ArrowPreference(title = "模块与设备兼容报告", onClick = onReport)
+        ArrowPreference(title = "GitHub 源码与适配", onClick = onGitHub)
     }
     Card(Modifier.fillMaxWidth()) {
         ArrowPreference(title = "导出历史 CSV", onClick = onCsv)

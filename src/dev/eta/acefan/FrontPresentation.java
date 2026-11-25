@@ -25,7 +25,7 @@ public final class FrontPresentation {
         CONFIG_UNAVAILABLE("设置不可读"), DISABLED("未启用"), POWER_UNKNOWN("未确认电池放电"),
         EXTERNAL_POWER("外部供电时不介入"), RELOAD("模块待重载"), HOOK_READ_FAILED("模块未能读取设置"),
         WAITING_CONFIG("等待模块读取当前设置"), WAITING_SAMPLE("已读取设置 · 等待新鲜回报"),
-        TOO_COOL("未超过启停温度"), WAITING_CANDIDATE("已超过阈值 · 等待原厂计算"),
+        TOO_COOL("未超过启停温度"), WAITING_CANDIDATE("等待原厂计算日用档位"),
         OEM_ZERO("等待原厂起转"), OEM_SUFFICIENT("原厂档位已足够"),
         OEM_BLOCKED("原厂设置或保护未允许"), SCENE_BLOCKED("原厂当前场景不允许"),
         HEALTH_BLOCKED("风扇健康状态未通过"), NO_TEMPERATURE("无可用参与温度"),
