@@ -13,7 +13,7 @@
 - MANUAL-093：进行中。旧版实机复现系统智能→手动最大档后 owned0/state0/NORMAL、采样停止；已恢复智能。补 Root 精确 release 确认、原始观测时间、有限重试/消费回执与原厂线程重算，保留全套原厂保护；具体见[本轮权威入口](knowledge/MANUAL-HANDOFF.md)。
 - TELEMETRY-093：代码与离线回归已完成，运行验收进行中。非接管时内核继续四路采样和独立展示融合；所有控制门禁、租约、故障仍保留。旧stage4不能热获得该功能，原stage5也不包含修复。
 - SCOPE-093：部分完成。产品收敛ACE7Pro、安装器移除项目号/uname附加限制；真正任意内核通用未完成，ABI helper绑定保留，不用删保护伪装实现。
-- RELEASE-093：进行中。用户已授权修好后正式发布、不要预发布，README已精简。新KO/Hook需要用户正常重启后核实首切与曲线才满足正式发布条件；此前不创建GitHub正式Release或预发布，不把旧版实测冒充新版。安装/交付实际结果见[交付](releases/0.9.3-manual-handoff/DELIVERY.md)。
+- RELEASE-093：进行中。code30统一ZIP已真实KSU安装成功、App30及metadata新KO/helper哈希读回一致，原设置保留；boot/stage4及旧Hook未重载。用户已授权修好后正式发布、不要预发布，README已精简。新KO/Hook需要用户正常重启后核实首切与曲线才满足正式发布条件；此前不创建GitHub正式Release或预发布，不把旧版实测冒充新版。安装/交付实际结果见[交付](releases/0.9.3-manual-handoff/DELIVERY.md)。
 
 ## 当前P0：原厂游戏兼容回归
 
