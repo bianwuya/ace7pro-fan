@@ -6,7 +6,7 @@
 
 用户明确只接管日用、原厂游戏不变。内核升级遗漏的Horae风扇温度解耦已补回启动链，已构建原签名`0.9.2-game-compat/code29`并由KSU实际安装成功；App实装29、待启动模块/KO/helper/脚本哈希回读通过。本boot只读bind兼容图像已完成，原件394ed4…变为旧修复eae728…；当时Horae因当前充电处于stopped，未启停服务，等其正常恢复后再核验运行/proc身份。新Root relay已接续code29，正式Provider真实显示BLOCKED而非误报NORMAL；原日用v8/充电v1保留。
 
-当前仍驻留stage4，下一启动复用stage5日用阶梯KO（字节不改），不把新包当内核游戏策略接管；OEM同档交还和游戏物理起转仍未验，当前BLOCKED不清、不强启。本轮未重启、卸载驱动或改充电/EXGT，旧发布资产不覆盖。实际交付身份见[code29说明](../releases/0.9.2-game-compat/NOTES.md)，完整事实与继续点见[游戏回归](GAME-REGRESSION.md)。
+当前仍驻留stage4，下一启动复用stage5日用阶梯KO（字节不改），不把新包当内核游戏策略接管；OEM同档交还和游戏物理起转仍未验，当前BLOCKED不清、不强启。本轮未重启、卸载驱动或改充电/EXGT，旧发布资产不覆盖。实际交付身份见[code29说明](../releases/0.9.2-game-compat/NOTES.md)，完整事实与继续点见[游戏回归](GAME-REGRESSION.md)。源码2994b0e已推原风扇库修复分支，预发布`kernel-0.9.2-code29`的同一ZIP及3个配套资产已上传并实际下载逐字节核对通过，本地/云端一致；不覆盖旧包。见[交付记录](../releases/0.9.2-game-compat/DELIVERY.md)。
 
 ## 上次交付：0.9.1/code28 RPM已实装运行，日用升档新驱动已登记
 

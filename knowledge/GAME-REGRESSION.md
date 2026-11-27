@@ -6,7 +6,7 @@
 
 已实际只读bind回旧Horae风扇解耦：挂载前stock394ed4…，挂载后eae728…，退出0；应用时当前充电且Horae已stopped，本任务没有拉起它，状态`bound_waiting_normal_service_start`。等独立充电模块正常恢复Horae或用户正常重启后，必须再验证`/proc/<pid>/exe`，不把磁盘bind当运行生效。当前真实驱动BLOCKED不清、不强启，故游戏物理恢复尚不能宣称通过。
 
-新ZIP为8212505字节，SHA256 `f6c093437d217136ad15b7c45c5004672effbc0ded8cbb7b1aa4cfa3c57a72bf`，本地在`Download/eta/工作区产物/ace7pro-fan/0.9.2-game-compat/`；详见[code29说明](../releases/0.9.2-game-compat/NOTES.md)。驻留stage4与boot未变；stage5登记待启动，禁止热卸载试错。
+新ZIP为8212505字节，SHA256 `f6c093437d217136ad15b7c45c5004672effbc0ded8cbb7b1aa4cfa3c57a72bf`，本地在`Download/eta/工作区产物/ace7pro-fan/0.9.2-game-compat/`；详见[code29说明](../releases/0.9.2-game-compat/NOTES.md)。源码2994b0e及同包已推到原风扇仓库，预发布kernel-0.9.2-code29全部4个资产实际下载校验与本地一致；身份见[交付记录](../releases/0.9.2-game-compat/DELIVERY.md)。驻留stage4与boot未变；stage5登记待启动，禁止热卸载试错。
 
 ## 用户授权范围
 
