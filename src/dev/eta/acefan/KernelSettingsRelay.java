@@ -55,8 +55,8 @@ import java.util.concurrent.atomic.AtomicLong;
  * Settings + safety gates + identical-line lease writes only. All thermal sampling and fan control
  * belong to eta_policy. This class never invokes an OEM controller/getter/setter/HAL.
  *
- * Three independent lanes: callbacks/heartbeat (no IPC); settings/safety worker (may block in IPC);
- * one writer (no Provider IPC). A blocked worker, dead callbacks or blocked report publication loses
+ * Independent lanes: callbacks/heartbeat (no IPC); settings/safety worker (may block in IPC);
+ * one writer (no Provider IPC), reporter and bounded handoff notifier. A blocked worker, dead callbacks or blocked report publication loses
  * authorization within bounded time, then the writer disables or lets the kernel's <=5s lease expire.
  * AndroidSettings are revalidated every 2s to cover lost notifications; Provider config is read only
  * at startup, on its dedicated change URIs, or retry after an unsuccessful read.
@@ -70,7 +70,7 @@ public final class KernelSettingsRelay {
     private static final String[] SYSTEM_KEYS = {"cooling_fan_main_switch_modify", "cooling_fan_main_switch",
             "cooling_fan_mode_v3", "cooling_fan_mode_auto_control_switch", "cooling_fan_charge_switch",
             "regular_charge_protection_status", "cooling_fan_mic_mutual", "rider_mode_main_switch",
-            "super_powersave_mode_state", "sys_oplus_high_performance_spec"};
+            "super_powersave_mode_state", "sys_oplus_high_performance_spec", "cooling_fan_customize_level"};
     private static final String[] GLOBAL_KEYS = {"cooling_fan_service_abort", "op_audio_mic_status", "gamemode_delayed"};
     private final Context context;
     private final ContentResolver resolver;
@@ -80,8 +80,8 @@ public final class KernelSettingsRelay {
     private final KernelProtocol.Lease lease;
     private final HandlerThread eventThread = new HandlerThread("ACEFan-root-events");
     private Handler events;
-    private final Semaphore workWake = new Semaphore(0), writeWake = new Semaphore(0);
-    private final AtomicLong epoch = new AtomicLong(), configEpoch = new AtomicLong();
+    private final Semaphore workWake = new Semaphore(0), writeWake = new Semaphore(0), handoffWake = new Semaphore(0);
+    private final AtomicLong epoch = new AtomicLong(), configEpoch = new AtomicLong(), handoffEpoch = new AtomicLong();
     private final AtomicBoolean configDirty = new AtomicBoolean(true), stopping = new AtomicBoolean();
     private volatile long eventsAt, statusAt, publisherAt;
     private volatile Authorization authorization;
@@ -90,7 +90,7 @@ public final class KernelSettingsRelay {
     private volatile String diagnostic = "initializing", signalSupport = "not_registered", sourceSetupFailure = "registration_incomplete";
     private volatile boolean observersReady, thermalListenerReady, audioListenerReady, pocketListenerReady;
     private volatile int pocket = -1;
-    private Thread worker, writer, reporter;
+    private Thread worker, writer, reporter, handoff;
     private RootFanRpmObserver fgObserver;
     private volatile FileDescriptor writingFd;
     private PowerManager power;
@@ -278,7 +278,7 @@ public final class KernelSettingsRelay {
                 market.append(get.invoke(null, key, "")).append(' ');
         } catch (ReflectiveOperationException ignored) { /* unknown market never widens the family gate */ }
         if (!CompatibilityCatalog.hardwareSupported(Build.MODEL, Build.DEVICE, market.toString()))
-            throw new SecurityException("kernel relay limited to the supported ACE 7 family");
+            throw new SecurityException("kernel relay limited to the supported ACE 7 Pro");
         this.context = context; resolver = context.getContentResolver(); providers = new RootProviderAccess();
         files = PolicyFiles.discover();
         revisions = new RevisionStore();
@@ -300,6 +300,7 @@ public final class KernelSettingsRelay {
         fgObserver = RootFanRpmObserver.start();
         // Root receives original kernel FG events independently; the old optional OEM Hook is retained.
         writer = daemon("ACEFan-root-writer", this::writerLoop);
+        handoff = daemon("ACEFan-root-handoff", this::handoffLoop);
         reporter = daemon("ACEFan-root-report", this::reportLoop);
         worker = daemon("ACEFan-root-settings", this::workerLoop);
         Log.i(TAG, "root system Context created; safety access is checked, not assumed; signals=" + signalSupport
@@ -334,10 +335,14 @@ public final class KernelSettingsRelay {
         // External Provider and Settings reads are explicitly user0, never attributed to an App.
         Method register = ContentResolver.class.getMethod("registerContentObserver", Uri.class, boolean.class, ContentObserver.class, int.class);
         observer = new ContentObserver(events) {
-            @Override public void onChange(boolean selfChange) { invalidate(true); }
+            @Override public void onChange(boolean selfChange) { handoffEpoch.incrementAndGet(); wake(handoffWake); invalidate(true); }
             @Override public void onChange(boolean selfChange, Uri uri) {
                 // No-URI or ancestor invalidations cannot safely be attributed: reread both configs.
                 boolean provider = uri == null || "dev.eta.acefan.data".equals(uri.getAuthority());
+                if (uri == null || Settings.System.getUriFor("cooling_fan_mode_v3").equals(uri)
+                        || Settings.System.getUriFor("cooling_fan_customize_level").equals(uri)) {
+                    handoffEpoch.incrementAndGet(); wake(handoffWake);
+                }
                 invalidate(provider);
             }
         };
@@ -514,7 +519,10 @@ public final class KernelSettingsRelay {
                     }
                     // A Provider version may change without changing any wire parameter. The
                     // byte-identical, already-committed kernel config still acknowledges that read.
-                    if (line.equals(lastLine)) sent = new Sent(lease.revision(), previous, meta);
+                    if (line.equals(lastLine)) {
+                        sent = new Sent(lease.revision(), previous, meta);
+                        if (!enable && (previous.gates.mode == 2 || previous.gates.mode == 3)) wake(handoffWake);
+                    }
                     disabledFirst = true; // initial complete read always sends disabled before any effective cfg
                 }
                 if (stopping.get()) break;
@@ -524,6 +532,44 @@ public final class KernelSettingsRelay {
             diagnostic = "writer_failed_no_more_leases:" + error(t); authorization = null;
             Log.e(TAG, diagnostic, t); // No uncertain-write retry. The kernel lease is the final fail-safe.
         } finally { closeWritingFd(); }
+    }
+    /** A separate, bounded event-recovery lane: no IPC or acknowledgement wait in the writer. */
+    private void handoffLoop() {
+        KernelHandoff.Retry retry = new KernelHandoff.Retry();
+        long pendingAt = 0;
+        while (!stopping.get()) {
+            try {
+                handoffWake.acquire();
+                if (stopping.get()) break;
+                Sent current = sent;
+                if (current == null || (current.config.gates.mode != 2 && current.config.gates.mode != 3)) continue;
+                long generation = handoffEpoch.get();
+                if (retry.matches(current.revision, generation) && pendingAt > 0 && !retry.completed()) {
+                    if (retry.exhausted() && now() - pendingAt >= 5000) { retry.complete(); continue; }
+                    Bundle receipt = providers.call(API.getAuthority(), "kernelHandoff", null, null);
+                    if (receipt != null && receipt.getLong("at", 0) == pendingAt && receipt.getBoolean("consumed", false))
+                        retry.complete();
+                }
+                if (!retry.begin(current.revision, generation, now())) continue;
+                String mode = providers.setting("system", "cooling_fan_mode_v3");
+                String level = providers.setting("system", "cooling_fan_customize_level");
+                if (!KernelHandoff.manual(mode) || KernelProtocol.mode(mode) != current.config.gates.mode || level == null) continue;
+                // Timestamp the actual read, never renew its freshness on IPC arrival.
+                long observedAt = now(), authorizedEpoch = epoch.get();
+                String line = read(files.status, 8192);
+                KernelReport proof = KernelReport.parse(line);
+                Sent committed = sent;
+                if (!KernelHandoff.released(proof, current.revision) || committed == null
+                        || committed.revision != current.revision || committed.config.gates.mode != current.config.gates.mode
+                        || generation != handoffEpoch.get() || authorizedEpoch != epoch.get()) continue;
+                Bundle token = new Bundle(); token.putLong("revision", current.revision);
+                token.putLong("at", observedAt); token.putLong("generation", generation);
+                token.putString("status", line); token.putString("mode", mode); token.putString("level", level);
+                Bundle result = providers.call(API.getAuthority(), "rootHandoff", null, token);
+                if (result != null && result.getBoolean("ok", false)) pendingAt = observedAt;
+            } catch (InterruptedException ignored) { }
+            catch (Throwable t) { Log.w(TAG, "manual_handoff_unconfirmed:" + error(t)); }
+        }
     }
     private boolean write(String line, Authorization required) throws Exception {
         byte[] bytes = line.getBytes(StandardCharsets.US_ASCII);
@@ -590,7 +636,7 @@ public final class KernelSettingsRelay {
     private void shutdown() {
         if (!stopping.compareAndSet(false, true)) return;
         if (fgObserver != null) fgObserver.close();
-        authorization = null; wake(writeWake); wake(workWake);
+        authorization = null; wake(writeWake); wake(workWake); wake(handoffWake);
         if (writer != null && writer != Thread.currentThread()) try { writer.join(2500); } catch (InterruptedException ignored) { }
         closeWritingFd();
         // Do not wait on blocked Provider/framework IPC in a shutdown hook.

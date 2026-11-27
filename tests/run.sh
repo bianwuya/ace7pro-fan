@@ -15,10 +15,10 @@ javac --release 8 -Xlint:-options -encoding UTF-8 -d build/test-classes \
     src/dev/eta/acefan/Sampling.java src/dev/eta/acefan/CompatibilityCatalog.java \
     src/dev/eta/acefan/ReportFreshness.java src/dev/eta/acefan/FanServiceCompat.java \
     src/dev/eta/acefan/FrontPresentation.java src/dev/eta/acefan/FanRpm.java src/dev/eta/acefan/RootFgEvent.java src/dev/eta/acefan/FanDebugReport.java \
-    src/dev/eta/acefan/KernelProtocol.java src/dev/eta/acefan/KernelReport.java src/dev/eta/acefan/BuildInfo.java \
+    src/dev/eta/acefan/KernelProtocol.java src/dev/eta/acefan/KernelReport.java src/dev/eta/acefan/KernelHandoff.java src/dev/eta/acefan/BuildInfo.java \
     src/dev/eta/acefan/ControlCycle.java src/dev/eta/acefan/RuntimeEvidence.java src/dev/eta/acefan/DiagnosticReport.java \
     src/dev/eta/acefan/DirectFanControl.java src/dev/eta/acefan/OemFanRamp.java src/dev/eta/acefan/FanNodeIo.java tests/*.java
-for name in RootFgEventTest KernelGateInputsTest KernelHardwareStatusTest DailyFanPolicyTest FusionTempTest ChargeCurveTest WakeHandoffTest SamplingTest CompatibilityTest DiagnosticReportTest RuntimeEvidenceTest ControlCycleTest FrontPresentationTest FanRpmTest DirectFanControlTest OemFanRampTest FanNodeIoTest FanNodeBridgeTest; do
+for name in RootFgEventTest KernelGateInputsTest KernelHardwareStatusTest KernelHandoffTest DailyFanPolicyTest FusionTempTest ChargeCurveTest WakeHandoffTest SamplingTest CompatibilityTest DiagnosticReportTest RuntimeEvidenceTest ControlCycleTest FrontPresentationTest FanRpmTest DirectFanControlTest OemFanRampTest FanNodeIoTest FanNodeBridgeTest; do
     java -cp build/test-classes "dev.eta.acefan.$name"
 done
 
@@ -137,7 +137,7 @@ public final class KernelRelayContractTest {
         Path hostFixture = Paths.get("build/kernel-replace-audit/driver-relink/stage3-independent/relay-fixtures.txt");
         if (Files.isRegularFile(hostFixture)) for (String s : Files.readAllLines(hostFixture, StandardCharsets.UTF_8))
             if (s.startsWith("full_owner.status=")) fixture = s.substring("full_owner.status=".length());
-        final String status = fixture.replaceAll(" (fusionMc|fusionValid|demand)=-?[0-9]+", "");
+        final String status = fixture.replaceAll(" (fusionMc|fusionValid|demand|telemetryFusionMc|telemetryFusionValid|telemetryContributorMask|sampleFreshMs|samplePeriodMs|sampleAgeMs|sampleCompletedAtMs|sampleDurationMs)=-?[0-9]+", "");
         KernelReport report = KernelReport.parse(status);
         ok(report.ready() && report.get("target") == 12 && report.get("effective") == 2, "target/output/effective remain separate");
         Map<String, Object> row = output(report, cfg);
@@ -203,6 +203,114 @@ public final class KernelRelayContractTest {
         rejects(() -> KernelReport.parse(status + " ready=1"), "duplicate authority");
         rejects(() -> KernelReport.parse(status.replace(" temp2=31000", "")), "missing thermal field");
         rejects(() -> KernelReport.parse(status.replace("effective=2", "effective=99")), "invalid level range");
+        // Old status keeps its exact fallback; the bounded kernel extension is
+        // authoritative for display freshness, not a new lease/control grant.
+        ok(KernelReport.parse(status.replace("nowMs=1000", "nowMs=5999")).sampleFresh(), "legacy freshness just below 5s");
+        ok(!KernelReport.parse(status.replace("nowMs=1000", "nowMs=6000")).sampleFresh(), "legacy freshness exactly 5s");
+        String fresh15 = status + " sampleFreshMs=15000";
+        KernelReport sixSeconds = KernelReport.parse(fresh15.replace("nowMs=1000", "nowMs=7000").replace("leaseUntil=6000", "leaseUntil=12000"));
+        ok(sixSeconds.sampleFresh() && sixSeconds.ready(), "kernel 15s evidence replaces arbitrary Java 5s cutoff");
+        ok(KernelReport.parse(fresh15.replace("nowMs=1000", "nowMs=15999")).sampleFresh(), "kernel freshness just below 15s");
+        ok(!KernelReport.parse(fresh15.replace("nowMs=1000", "nowMs=16000")).sampleFresh(), "kernel freshness exactly 15s");
+        ok(KernelReport.parse((status + " sampleFreshMs=1000").replace("nowMs=1000", "nowMs=1999")).sampleFresh(), "minimum bounded freshness");
+        ok(!KernelReport.parse((status + " sampleFreshMs=1000").replace("nowMs=1000", "nowMs=2000")).sampleFresh(), "minimum freshness strict boundary");
+        for (String bad : new String[]{"-1", "0", "999", "15001", "9223372036854775807", "9223372036854775808", "unknown"})
+            rejects(() -> KernelReport.parse(status + " sampleFreshMs=" + bad), "invalid/unbounded sampleFreshMs " + bad);
+        ok(!KernelReport.parse(status.replace("sampleAtMs=1000", "sampleAtMs=0")).sampleFresh(), "zero sample timestamp missing");
+        ok(!KernelReport.parse(status.replace("sampleAtMs=1000", "sampleAtMs=1001")).sampleFresh(), "future sample cannot be fresh");
+        ok(!KernelReport.parse(status.replace("nowMs=1000", "nowMs=0")).sampleFresh(), "reversed monotonic time rejected");
+        String timed = fresh15.replace("nowMs=1000", "nowMs=7000")
+                + " samplePeriodMs=1000 sampleAgeMs=6000 sampleCompletedAtMs=6000 sampleDurationMs=5000";
+        ok(KernelReport.parse(timed).sampleFresh(), "slow complete sample still fresh inside kernel window");
+        for (String badTimed : new String[]{timed.replace("sampleCompletedAtMs=6000", "sampleCompletedAtMs=7001"),
+                timed.replace("sampleCompletedAtMs=6000", "sampleCompletedAtMs=999"),
+                timed.replace("sampleCompletedAtMs=6000", "sampleCompletedAtMs=0"),
+                timed.replace("sampleDurationMs=5000", "sampleDurationMs=4999"),
+                timed.replace("sampleDurationMs=5000", "sampleDurationMs=-1"),
+                timed.replace("sampleAgeMs=6000", "sampleAgeMs=5999"),
+                timed.replace("sampleAgeMs=6000", "sampleAgeMs=-1")})
+            ok(!KernelReport.parse(badTimed).sampleFresh(), "inconsistent sample timing never fresh");
+        ok(!KernelReport.parse(status + " sampleDurationMs=1").sampleFresh(), "duration cannot exceed sample age even without completion");
+        ok(KernelReport.parse(fresh15.replace("sampleAtMs=1000", "sampleAtMs=9223372036854760808")
+                .replace("nowMs=1000", "nowMs=9223372036854775807")).sampleFresh(), "large nonnegative timestamps do not overflow");
+        rejects(() -> KernelReport.parse(status + " sampleCompletedAtMs=-1"), "negative completion timestamp");
+        rejects(() -> KernelReport.parse(status + " sampleAgeMs=-2"), "invalid age sentinel");
+        rejects(() -> KernelReport.parse(status + " sampleFreshMs=15000 sampleFreshMs=15000"), "duplicate freshness evidence");
+
+        String denied = status.replace("configured=1", "configured=0").replace("owned=1", "owned=0")
+                .replace("ready=1", "ready=0").replace("target=12", "target=-1") + " fusionValid=0 fusionMc=-1 demand=-1";
+        String telemetry = " telemetryFusionValid=1 telemetryFusionMc=35678 telemetryContributorMask=5 sampleFreshMs=15000";
+        for (String deniedStatus : new String[]{denied, denied.replace("fault=0", "fault=-5"),
+                denied.replace("leaseUntil=6000", "leaseUntil=0"), denied.replace("strategy=2", "strategy=0")}) {
+            KernelReport manual = KernelReport.parse(deniedStatus + telemetry);
+            Map<String,Object> manualRow = output(manual, cfg);
+            Map<?,?> manualDay = (Map<?,?>)manualRow.get("daily"), manualNode = (Map<?,?>)manualRow.get("nodeControl");
+            ok(manual.sampleFresh() && !manual.ready() && manualRow.get("battery").equals(31.0), "denied control retains raw thermal telemetry");
+            ok(manualDay.get("fusedTemp").equals(35.678) && manualDay.get("demand") == null, "telemetry fusion cannot invent control demand");
+            ok(Boolean.FALSE.equals(manualNode.get("ready")) && manualNode.get("target") == null
+                    && Boolean.FALSE.equals(manualRow.get("active")), "independent telemetry never grants ready/target/active");
+            FrontPresentation.Reading manualReading = FrontPresentation.decode(fields(manualRow), null);
+            FrontPresentation.Live manualLive = FrontPresentation.live(manualReading, manualReading, null, FrontPresentation.Power.BATTERY,
+                    1_710_000_000_000L, 100_000L, "test-boot", BuildInfo.HOOK_VERSION, 6, 8);
+            ok(manualLive.telemetryFresh && manualLive.temperatures()[0] == 31.0 && manualLive.dailyFusedTemp == 35.678, "manual telemetry reaches existing front presentation");
+        }
+        Map<String,Object> manualCharge = output(KernelReport.parse((denied + telemetry).replace("power=1", "power=2")
+                .replace("sourceOnlineMask=0", "sourceOnlineMask=1").replace("batteryStatus=2", "batteryStatus=1")), cfg);
+        ok(manualCharge.get("fused").equals(35.678) && Boolean.FALSE.equals(manualCharge.get("active")), "manual charge default fusion graph without control");
+        Map<String,Object> partialTelemetry = output(KernelReport.parse((denied + telemetry).replace("tempValidMask=15", "tempValidMask=14")
+                .replace("temp0=31000", "temp0=-1").replace("telemetryContributorMask=5", "telemetryContributorMask=4")), cfg);
+        ok(partialTelemetry.get("battery") == null && partialTelemetry.get("board").equals(31.0)
+                && ((Map<?,?>)partialTelemetry.get("daily")).get("fusedTemp").equals(35.678), "missing raw channel stays null while kernel renormalized fusion remains independent");
+        Map<String,Object> zeroSample = output(KernelReport.parse((denied + telemetry).replace("temp0=31000", "temp0=0")
+                .replace("telemetryFusionMc=35678", "telemetryFusionMc=0")), cfg);
+        ok(zeroSample.get("battery").equals(0.0) && ((Map<?,?>)zeroSample.get("daily")).get("fusedTemp").equals(0.0), "real zero remains valid, not a missing-value fill");
+        ok(output(KernelReport.parse(denied.replace("temp0=31000", "temp0=-1")), cfg).get("battery") == null, "invalid raw sentinel never displayed even with a malformed validity bit");
+        for (String extension : new String[]{" telemetryFusionValid=0 telemetryFusionMc=35678", " telemetryFusionMc=35678",
+                " telemetryFusionValid=1", " telemetryFusionValid=1 telemetryFusionMc=-1"}) {
+            Map<String,Object> noFusion = output(KernelReport.parse(status + " fusionValid=1 fusionMc=31000" + extension), cfg);
+            ok(((Map<?,?>)noFusion.get("daily")).get("fusedTemp") == null, "invalid/incomplete new telemetry cannot fall back to control fusion");
+        }
+        Map<String,Object> noConfigTelemetry = KernelReport.parse(denied + telemetry).fields(1_710_000_000_000L, 100_000L,
+                "test-boot", BuildInfo.HOOK_VERSION, 0, null, -1, -1, "HOST_MOCK_ONLY");
+        Map<?,?> noConfigDay = (Map<?,?>)noConfigTelemetry.get("daily");
+        ok(noConfigDay.get("version").equals(-1L) && noConfigDay.get("contributorMask").equals(5)
+                && noConfigDay.get("fusedTemp").equals(35.678), "kernel contributor evidence independent of Java config acknowledgement");
+        FrontPresentation.Reading noConfigReading = FrontPresentation.decode(fields(noConfigTelemetry), null);
+        ok(FrontPresentation.live(noConfigReading, noConfigReading, null, FrontPresentation.Power.BATTERY,
+                1_710_000_000_000L, 100_000L, "test-boot", BuildInfo.HOOK_VERSION, 6, 8).dailyFusedTemp == 35.678,
+                "read-only fusion remains graphable without claiming config acknowledgement");
+        for (String invalidMask : new String[]{"0", "2"}) {
+            String masked = (denied + telemetry).replace("tempValidMask=15", "tempValidMask=13")
+                    .replace("telemetryContributorMask=5", "telemetryContributorMask=" + invalidMask);
+            ok(((Map<?,?>)output(KernelReport.parse(masked), cfg).get("daily")).get("fusedTemp") == null,
+                    "zero or missing contributor cannot validate telemetry fusion");
+        }
+        Map<String,Object> staleTelemetry = output(KernelReport.parse((denied + telemetry).replace("nowMs=1000", "nowMs=16000")), cfg);
+        ok(staleTelemetry.get("battery") == null && ((Map<?,?>)staleTelemetry.get("daily")).get("fusedTemp") == null, "stale independent telemetry is also missing");
+        for (String extension : new String[]{" telemetryFusionValid=2", " telemetryFusionMc=65001", " telemetryFusionMc=-2", " telemetryContributorMask=16"})
+            rejects(() -> KernelReport.parse(status + extension), "invalid optional telemetry field");
+        // When available, consume fresh status emitted by this very adapter's
+        // native regression harness, not merely a hand-authored Java fixture.
+        Path telemetryFixtures = Paths.get(System.getProperty("eta.telemetryFixtures", "build/manual-fix-audit/telemetry-relay-fixtures.txt"));
+        if (Files.isRegularFile(telemetryFixtures)) {
+            int actual = 0;
+            for (String fixtureLine : Files.readAllLines(telemetryFixtures, StandardCharsets.UTF_8)) {
+                int equal = fixtureLine.indexOf(".status=");
+                if (equal < 0) continue;
+                KernelReport actualReport = KernelReport.parse(fixtureLine.substring(equal + ".status=".length()));
+                Map<String,Object> actualRow = output(actualReport, cfg);
+                Map<?,?> actualDay = (Map<?,?>)actualRow.get("daily"), actualNode = (Map<?,?>)actualRow.get("nodeControl");
+                ok(actualReport.sampleFresh() && !actualReport.ready(), "real adapter fresh telemetry under denied/expired/fault/resumed control");
+                ok(actualNode.get("target") == null && Boolean.FALSE.equals(actualNode.get("ready"))
+                        && actualDay.get("demand") == null, "real adapter telemetry never advertises a target");
+                boolean missing = fixtureLine.startsWith("missing.") || fixtureLine.startsWith("no_contributors.");
+                ok(missing ? actualRow.get("battery") == null : actualRow.get("battery").equals(31.0), "real adapter raw missing semantics");
+                ok(fixtureLine.startsWith("no_contributors.") ? actualDay.get("fusedTemp") == null : actualDay.get("fusedTemp").equals(31.0), "real kernel telemetry fusion round trip");
+                actual++;
+            }
+            ok(actual == 6, "all six current native telemetry fixtures exercised");
+            System.out.println("TelemetryActualFixture: OK " + telemetryFixtures + "; HOST_MOCK_ONLY_NOT_DEVICE");
+        }
         Path stage4 = Paths.get("build/kernel-replace-audit/driver-relink/stage4-first-control/relay-fixtures.txt");
         if (Files.isRegularFile(stage4)) {
             int actual = 0;
@@ -286,3 +394,6 @@ assert json.loads(db.execute('SELECT json FROM sample ORDER BY wall DESC,id DESC
 print('KernelProviderSqliteContract: OK; static UID/arbitration + real SQLite schema/order; NOT Binder/device verification')
 PY
 python3 tests/test_root_provider_access.py
+
+# Execute the real event-only OEM bridge with explicit host fakes; not device proof.
+python3 tests/test_kernel_handoff.py

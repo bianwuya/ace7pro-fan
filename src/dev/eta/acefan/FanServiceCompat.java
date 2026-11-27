@@ -50,6 +50,21 @@ public final class FanServiceCompat {
         this.choice=choice;this.updated=updated;this.lastEvent=lastEvent;this.currentLevel=currentLevel;
         this.maximumField=maximumField;maxLevel=maximum;strategyNames=names;
     }
+    public static final class Handoff {
+        private final Object controller;
+        private final Field updated;
+        Handoff(Object c, Field f) { controller = c; updated = f; }
+        public void invalidateConfirmation() throws Exception { updated.setBoolean(controller, false); }
+    }
+    public static Handoff handoff(ClassLoader loader) throws Exception {
+        return handoff(Class.forName(ROOT + "controller.OplusFanController", false, loader));
+    }
+    static Handoff handoff(Class<?> type) throws Exception {
+        Object controller = optionalSingleton(type);
+        Field updated = optionalField(type, "mCurrentSpeedLevelUpdated", boolean.class);
+        if (controller == null || updated == null) throw new NoSuchFieldException("OEM confirmation cache unavailable");
+        return new Handoff(controller, updated);
+    }
     public static Bootstrap bootstrap(ClassLoader loader,Class<?> context,Class<?> handler)throws Exception{
         resetTrace();attempting("引擎类定位");
         try{return bootstrap(Class.forName(ROOT+"core.Aeolus",false,loader),context,handler);}
@@ -167,6 +182,11 @@ public final class FanServiceCompat {
     public Integer event()throws Exception{return controller!=null&&lastEvent!=null?Integer.valueOf(lastEvent.getInt(controller)):null;}
     Method autoTarget(){return autoTarget;}
     boolean ownsAutoTarget(Object instance){return mode!=null&&instance==mode;}
+    /** Used only after a root-confirmed kernel release, on the OEM handler. */
+    public void invalidateConfirmation() throws Exception {
+        if (controller == null || updated == null) throw new NoSuchFieldException("OEM confirmation cache unavailable");
+        updated.setBoolean(controller, false);
+    }
     public Boolean confirmed(Object c)throws Exception{return c!=null&&updated!=null?Boolean.valueOf(updated.getBoolean(c)):null;}
     public Integer level(Object c)throws Exception{return c!=null&&currentLevel!=null?Integer.valueOf(currentLevel.getInt(c)):null;}
     private static Object findOrchestrator(Object engine)throws Exception{

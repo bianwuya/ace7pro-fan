@@ -10,6 +10,8 @@ public final class KernelReport {
             + "leaseUntil nowMs ownerEpoch target output requestedLevel physicalState effective readbackMask "
             + "tempValidMask temp0 temp1 temp2 temp3 sampleAtMs power powerEpoch sourcePresentMask sourceOnlineMask "
             + "sourceFailedMask batteryStatus batteryPresent reason").split(" ");
+    private static final String[] OPTIONAL = ("fusionMc fusionValid demand telemetryFusionMc telemetryFusionValid telemetryContributorMask "
+            + "sampleFreshMs samplePeriodMs sampleAgeMs sampleCompletedAtMs sampleDurationMs").split(" ");
     private final Map<String, Long> values;
     private final String statusLine;
     private KernelReport(Map<String, Long> values, String line) { this.values = Collections.unmodifiableMap(values); statusLine = line.trim(); }
@@ -33,7 +35,9 @@ public final class KernelReport {
             if (!key.matches("[A-Za-z][A-Za-z0-9_]{0,63}") || !seen.add(key)) throw new IllegalArgumentException("duplicate/invalid status key");
             boolean required = false;
             for (String k : REQUIRED) if (k.equals(key)) { required = true; break; }
-            if (!required && !"fusionMc".equals(key) && !"fusionValid".equals(key) && !"demand".equals(key)) continue; // future diagnostic keys may be textual
+            boolean optional = false;
+            for (String k : OPTIONAL) if (k.equals(key)) { optional = true; break; }
+            if (!required && !optional) continue; // future diagnostic keys may be textual
             if (!text.matches("-?[0-9]{1,19}")) throw new IllegalArgumentException("invalid status integer");
             out.put(key, Long.parseLong(text));
         }
@@ -51,6 +55,15 @@ public final class KernelReport {
         if (out.containsKey("fusionMc")) r.bound("fusionMc", -100000, 250000);
         if (out.containsKey("fusionValid")) r.bound("fusionValid", 0, 1);
         if (out.containsKey("demand")) r.bound("demand", -1, 20);
+        if (out.containsKey("telemetryFusionMc")) r.bound("telemetryFusionMc", -1, 65000);
+        if (out.containsKey("telemetryFusionValid")) r.bound("telemetryFusionValid", 0, 1);
+        if (out.containsKey("telemetryContributorMask")) r.bound("telemetryContributorMask", 0, 15);
+        // Accept the kernel's 15 s policy freshness, but never an unbounded extension.
+        if (out.containsKey("sampleFreshMs")) r.bound("sampleFreshMs", 1000, 15000);
+        if (out.containsKey("samplePeriodMs")) r.bound("samplePeriodMs", 1, 15000);
+        if (out.containsKey("sampleCompletedAtMs")) r.bound("sampleCompletedAtMs", 0, Long.MAX_VALUE);
+        for (String key : new String[]{"sampleAgeMs", "sampleDurationMs"})
+            if (out.containsKey(key)) r.bound(key, -1, Long.MAX_VALUE);
         if (r.get("configProtocol") == 0 && r.get("configRevision") != 0) throw new IllegalArgumentException("unconfigured revision");
         return r;
     }
@@ -59,8 +72,19 @@ public final class KernelReport {
         if (v < min || v > max) throw new IllegalArgumentException("out of range " + key);
     }
     public boolean sampleFresh() {
-        long age = get("nowMs") - get("sampleAtMs");
-        return get("sampleAtMs") > 0 && age >= 0 && age < 5000;
+        long at = get("sampleAtMs"), now = get("nowMs");
+        if (at <= 0 || now < at) return false;
+        long age = now - at;
+        if (values.containsKey("sampleAgeMs") && get("sampleAgeMs") != age) return false;
+        if (values.containsKey("sampleCompletedAtMs")) {
+            long completed = get("sampleCompletedAtMs");
+            if (completed < at || completed > now) return false;
+            if (values.containsKey("sampleDurationMs") && get("sampleDurationMs") != completed - at) return false;
+        } else if (values.containsKey("sampleDurationMs")) {
+            long duration = get("sampleDurationMs");
+            if (duration < 0 || duration > age) return false;
+        }
+        return age < (values.containsKey("sampleFreshMs") ? get("sampleFreshMs") : 5000);
     }
     public boolean ready() {
         return get("ready") == 1 && get("live") == 1 && get("blocked") == 0 && get("fault") == 0
@@ -91,7 +115,7 @@ public final class KernelReport {
         boolean fresh = sampleFresh();
         String[] names = {"battery", "board", "fan", "mos"};
         for (int i = 0; i < 4; i++) {
-            boolean valid = fresh && (get("tempValidMask") & (1 << i)) != 0;
+            boolean valid = fresh && (get("tempValidMask") & (1 << i)) != 0 && get("temp" + i) >= 0 && get("temp" + i) <= 65000;
             out.put(names[i], valid ? get("temp" + i) / 1000.0 : null);
             if (i == 0) out.put("batteryValid", valid);
         }
@@ -110,9 +134,15 @@ public final class KernelReport {
         out.put("controlMode", daily ? "daily" : charge ? "charge" : "oem");
         out.put("active", charge && ready());
         out.put("phase", charge && ready() ? "kernel_control" : "oem");
-        // Optional stage3 extension is kernel evidence, never a Java temperature calculation.
-        Double fusion = fresh && Long.valueOf(1).equals(values.get("fusionValid")) && values.containsKey("fusionMc")
-                ? values.get("fusionMc") / 1000.0 : null;
+        // Read-only fusion is separate from control fusion/ready. If the new
+        // extension is present but invalid, never fall back to old control evidence.
+        boolean telemetryFusion = values.containsKey("telemetryFusionValid") || values.containsKey("telemetryFusionMc");
+        String fusionValidKey = telemetryFusion ? "telemetryFusionValid" : "fusionValid";
+        String fusionMcKey = telemetryFusion ? "telemetryFusionMc" : "fusionMc";
+        boolean contributorsValid = !telemetryFusion || !values.containsKey("telemetryContributorMask")
+                || (get("telemetryContributorMask") != 0 && (get("telemetryContributorMask") & ~get("tempValidMask")) == 0);
+        Double fusion = fresh && contributorsValid && Long.valueOf(1).equals(values.get(fusionValidKey)) && values.containsKey(fusionMcKey)
+                && get(fusionMcKey) >= 0 && get(fusionMcKey) <= 65000 ? get(fusionMcKey) / 1000.0 : null;
         out.put("fused", charge ? fusion : null);
         if (daily) {
             Map<String, Object> day = new LinkedHashMap<>();
@@ -121,7 +151,9 @@ public final class KernelReport {
             day.put("fusedTemp", fusion);
             day.put("demand", ready() && values.containsKey("demand") ? nullable("demand") : null);
             int mask = 0;
-            if (acknowledged && fresh) for (int i = 0; i < 4; i++)
+            if (telemetryFusion && values.containsKey("telemetryContributorMask")) {
+                if (fusion != null) mask = (int)get("telemetryContributorMask");
+            } else if (acknowledged && fresh) for (int i = 0; i < 4; i++)
                 if (config.daily.weight(i) > 0 && (get("tempValidMask") & (1 << i)) != 0) mask |= 1 << i;
             day.put("contributorMask", mask);
             day.put("state", !acknowledged ? "config_unavailable" : !config.daily.enabled ? "disabled"

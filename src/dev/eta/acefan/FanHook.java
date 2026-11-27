@@ -146,13 +146,14 @@ public final class FanHook implements IXposedHookLoadPackage {
         });
         String market=marketName();
         boolean family=CompatibilityCatalog.hardwareSupported(Build.MODEL,Build.DEVICE,market);
-        hardwareGate=(family?"通过：":"不通过：")+Build.MODEL+" / "+Build.DEVICE+" / "+market+"（ACE 7 系列）";
+        hardwareGate=(family?"通过：":"不通过：")+Build.MODEL+" / "+Build.DEVICE+" / "+market+"（ACE 7 Pro）";
         if(!family){compatibilityStatus="outside-family";compatibilityStage="设备系列识别";compatibilityDetail=hardwareGate;return;}
         if(!CompatibilityCatalog.bridgeSupported(XposedBridge.getXposedVersion())){
             compatibilityStatus="setup-failed";compatibilityStage="框架接口";
             compatibilityDetail="需要传统 Xposed API ≥82，当前 "+XposedBridge.getXposedVersion();return;
         }
         installRpmObserver(); // Optional read-only capability; never blocks the existing policy.
+        KernelOemHandoff.install(loader); // Root-confirmed release only; no policy/thermal/control hooks.
         if (yieldToKernel()) return; // No legacy bootstrap/control hooks for an eta_policy driver.
         try{
             bootstrap=FanServiceCompat.bootstrap(loader,Context.class,Handler.class);

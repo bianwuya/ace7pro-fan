@@ -19,6 +19,8 @@ static int battery_missing,usb_missing,power_status,power_present,usb_online,the
 static int ac_missing,wireless_missing,ac_online,wireless_online,battery_error,battery_status_fail,battery_present_fail;
 static unsigned int source_error_mask,source_read_fail_mask,thermal_read_fail_mask,thermal_missing_mask,readback_fail_mask;
 static int temperature_offset[4];
+static unsigned int thermal_reads,power_reads,expect_unowned_before_reads,hardware_trip_after_thermal;
+static unsigned long last_queue_delay;
 static unsigned int source_puts[3],battery_puts;
 static eta_u64 now_ms;
 static void (*fake_devm_action)(void *);
@@ -48,7 +50,7 @@ struct workqueue_struct *alloc_workqueue(const char *n,unsigned int flags,int ac
 void destroy_workqueue(struct workqueue_struct *w) { CHECK(w==(struct workqueue_struct *)&fake_wq);CHECK(!lock_depth);++destroy_calls; }
 unsigned long __msecs_to_jiffies(const unsigned int ms) { return (ms+3)/4; }
 bool queue_delayed_work_on(int cpu,struct workqueue_struct *w,struct delayed_work *d,unsigned long delay)
-{ (void)delay;CHECK(cpu==32);CHECK(w==(struct workqueue_struct *)&fake_wq);CHECK(d==&eta_state.work);++queue_calls;return true; }
+{ last_queue_delay=delay;CHECK(cpu==32);CHECK(w==(struct workqueue_struct *)&fake_wq);CHECK(d==&eta_state.work);++queue_calls;return true; }
 bool mod_delayed_work_on(int cpu,struct workqueue_struct *w,struct delayed_work *d,unsigned long delay)
 { return queue_delayed_work_on(cpu,w,d,delay); }
 bool cancel_delayed_work_sync(struct delayed_work *d) { CHECK(!lock_depth);CHECK(d==&eta_state.work);++cancel_calls;return true; }
@@ -66,11 +68,14 @@ struct thermal_zone_device *thermal_zone_get_zone_by_name(const char *n)
 int thermal_zone_get_temp(struct thermal_zone_device *d,int *v)
 {
  unsigned int i;for(i=0;i<4;++i)if(d==(struct thermal_zone_device *)&fake_zones[i])break;CHECK(i<4);
+ ++thermal_reads;if(expect_unowned_before_reads)CHECK(!eta_state.owned);
+ if(hardware_trip_after_thermal && thermal_reads>=hardware_trip_after_thermal)status_normal=0;
  now_ms+=(unsigned int)thermal_delay;if(thermal_read_fail_mask&(1U<<i))return -5;*v=temperature+temperature_offset[i];return 0;
 }
 struct power_supply *power_supply_get_by_name(const char *n)
 {
  unsigned int i;int missing;
+ ++power_reads;if(expect_unowned_before_reads)CHECK(!eta_state.owned);
  if(eta_equal(n,"battery"))return battery_error?(struct power_supply *)-5L:(battery_missing?NULL:(struct power_supply *)&fake_battery);
  for(i=0;i<3;++i)if(eta_equal(n,i==0?"usb":i==1?"ac":"wireless"))break;CHECK(i<3);
  missing=i==0?usb_missing:i==1?ac_missing:wireless_missing;
@@ -121,6 +126,7 @@ static void reset(void)
     ac_missing=wireless_missing=1;ac_online=wireless_online=battery_error=battery_status_fail=battery_present_fail=0;
     source_error_mask=source_read_fail_mask=thermal_read_fail_mask=thermal_missing_mask=readback_fail_mask=0;
     memset(temperature_offset,0,sizeof(temperature_offset));memset(source_puts,0,sizeof(source_puts));battery_puts=0;
+    thermal_reads=power_reads=expect_unowned_before_reads=hardware_trip_after_thermal=0;last_queue_delay=0;
     now_ms=1000;fake_devm_action=NULL;fake_devm_data=NULL;
 }
 static void start(void) { reset();CHECK(eta_adapter_probe(&fake_pdev)==0);CHECK(eta_state.live);CHECK(eta_state.config.enabled==0); }
@@ -200,10 +206,12 @@ static void test_lifecycle(void)
 }
 #include "test_independent_host.h"
 #include "test_first_control_host.h"
+#include "test_telemetry_host.h"
 int main(int argc,char **argv)
 {
  test_parser();test_default_and_passthrough();test_edges_lease_derate();test_hardguards();test_baseline_and_normal_ramp();test_lifecycle();
- test_stage3_independent();test_stage4_first_control();
+ test_stage3_independent();test_stage4_first_control();test_read_only_telemetry();
  if(argc==2 && !strcmp(argv[1],"--snapshots")) print_stage3_relay_fixtures();
+ if(argc==2 && !strcmp(argv[1],"--telemetry-snapshots")) print_telemetry_relay_fixtures();
  printf("PASS %u assertions: real adapter/policy host execution with mocked kernel+OEM APIs; NOT device verification\n",checks);return 0;
 }

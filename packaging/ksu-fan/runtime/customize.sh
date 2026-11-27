@@ -2,9 +2,13 @@
 # KernelSU's built-in installer extracts non-META-INF members before sourcing this script.
 [ "$KSU" = true ] || abort '仅支持 KernelSU 安装。'
 [ "$ARCH" = arm64 ] || abort '此版本仅支持本机 ARM64。'
-[ "$(uname -r)" = '6.12.69-android16-6-g242e1a07f878-ab15865446-4k' ] || abort '内核版本不匹配，未安装。'
-[ "$(getprop ro.boot.prjname)" = 25841 ] || abort '设备项目不匹配，未安装。'
-[ "$(getprop ro.product.model)" = PMS110 ] || abort '设备型号不匹配，未安装。'
+# Product scope only. Actual binary/ABI checks remain in preinit; never force-load a KO.
+MODEL=$(getprop ro.product.model)
+MARKET=$(getprop ro.vendor.oplus.market.name)
+case "$MODEL" in
+    PMS110) ;;
+    *) printf '%s\n' "$MODEL" "$MARKET" | grep -Eiq '(^|[^a-z0-9])ace[ _-]*7[ _-]*pro($|[^a-z0-9])' || abort '仅支持 ACE 7 Pro。';;
+esac
 cd "$MODPATH" || abort '安装目录不可读。'
 [ -r SHA256SUMS ] || abort '缺少文件校验清单。'
 while read -r EXPECTED NAME; do

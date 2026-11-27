@@ -30,6 +30,8 @@ struct eta_adapter_state {
     struct eta_fan_policy_state policy;
     struct eta_fan_ramp_state ramp;
     struct eta_fan_policy_output output;
+    /* Read-only display evidence, never a control permission or target. */
+    struct eta_fan_fusion telemetry_fusion;
     eta_u64 deadline,power_epoch,channel_generation,sample_at_ms,sample_completed_ms;
     enum eta_fan_power power;
     unsigned int live,blocked,group_added,owned,last_request,last_enabled,probing;
@@ -119,6 +121,17 @@ static void eta_release_locked(void)
     eta_state.ready=0;
     eta_fan_normal_reset(&eta_state.ramp);
 }
+static void eta_invalidate_sample_locked(void)
+{
+    unsigned int i;
+    eta_state.temp_mask=0;eta_state.power_sample_valid=0;
+    eta_state.sample_at_ms=eta_state.sample_completed_ms=0;
+    eta_state.power=ETA_POWER_UNKNOWN;
+    eta_state.source_present_mask=eta_state.source_online_mask=eta_state.source_failed_mask=0;
+    eta_state.battery_status=eta_state.battery_present=-1;
+    eta_state.telemetry_fusion=(struct eta_fan_fusion){0};
+    for(i=0;i<ETA_FAN_CHANNELS;++i) eta_state.temperature_mc[i]=-1;
+}
 static void eta_refresh_readback_locked(void)
 {
     eta_state.readback_mask=0;
@@ -176,7 +189,20 @@ static void eta_sample_locked(struct eta_fan_policy_input *input,eta_u64 now)
     unsigned int i,prior_present=eta_state.source_present_mask,prior_online=eta_state.source_online_mask;
     unsigned int prior_failed=eta_state.source_failed_mask;
     int prior_status=eta_state.battery_status,prior_battery_present=eta_state.battery_present;
-    enum eta_fan_power power=eta_power_read();
+    enum eta_fan_power power;
+    const struct eta_fan_settings *settings=NULL;
+    input->main_enabled=(enum eta_fan_flag)eta_state.config.main_enabled;
+    input->mode=(enum eta_fan_mode)eta_state.config.mode;
+    input->auto_enabled=(enum eta_fan_flag)eta_state.config.auto_enabled;
+#define ETA_INPUT_GATE(F,B) input->F=(eta_state.config.gate_mask&(1U<<(B)))?ETA_FAN_YES:ETA_FAN_UNKNOWN
+    ETA_INPUT_GATE(ui_clear,0);ETA_INPUT_GATE(protection_clear,1);ETA_INPUT_GATE(abort_clear,2);
+    ETA_INPUT_GATE(noise_clear,3);ETA_INPUT_GATE(handle_clear,4);ETA_INPUT_GATE(hardware_healthy,5);ETA_INPUT_GATE(common_scene,6);
+#undef ETA_INPUT_GATE
+    /* Observe known hardware denial before potentially slow power/thermal reads. */
+    if(!eta_hardware_healthy()) { input->hardware_healthy=ETA_FAN_NO;eta_release_locked(); }
+    input->thermal_status_valid=eta_state.config.thermal_status_valid?ETA_FAN_YES:ETA_FAN_UNKNOWN;
+    input->thermal_status=eta_state.config.thermal_status;
+    power=eta_power_read();
     if(!eta_state.power_sample_valid || power!=eta_state.power || prior_present!=eta_state.source_present_mask ||
        prior_online!=eta_state.source_online_mask || prior_failed!=eta_state.source_failed_mask ||
        prior_status!=eta_state.battery_status || prior_battery_present!=eta_state.battery_present) ++eta_state.power_epoch;
@@ -193,28 +219,29 @@ static void eta_sample_locked(struct eta_fan_policy_input *input,eta_u64 now)
             eta_state.temp_mask|=1U<<i;eta_state.temperature_mc[i]=mc;
         }
     }
-    input->main_enabled=(enum eta_fan_flag)eta_state.config.main_enabled;
-    input->mode=(enum eta_fan_mode)eta_state.config.mode;
-    input->auto_enabled=(enum eta_fan_flag)eta_state.config.auto_enabled;
-#define ETA_INPUT_GATE(F,B) input->F=(eta_state.config.gate_mask&(1U<<(B)))?ETA_FAN_YES:ETA_FAN_UNKNOWN
-    ETA_INPUT_GATE(ui_clear,0);ETA_INPUT_GATE(protection_clear,1);ETA_INPUT_GATE(abort_clear,2);
-    ETA_INPUT_GATE(noise_clear,3);ETA_INPUT_GATE(handle_clear,4);ETA_INPUT_GATE(hardware_healthy,5);ETA_INPUT_GATE(common_scene,6);
-#undef ETA_INPUT_GATE
+    /* Keep the original post-sampling hardware guard as well: a slow thermal
+     * callback must not hide a protection edge observed before actuation. */
     if(!eta_hardware_healthy()) input->hardware_healthy=ETA_FAN_NO;
-    input->thermal_status_valid=eta_state.config.thermal_status_valid?ETA_FAN_YES:ETA_FAN_UNKNOWN;
-    input->thermal_status=eta_state.config.thermal_status;
+    eta_state.telemetry_fusion=(struct eta_fan_fusion){0};
+    if(power==ETA_POWER_BATTERY) settings=&eta_state.config.policy.daily;
+    else if(power==ETA_POWER_CHARGING) settings=&eta_state.config.policy.charge;
+    if(settings) (void)eta_fan_fuse(settings->weight,&input->sample,&eta_state.telemetry_fusion);
 }
 static void eta_policy_work(struct work_struct *work)
 {
     struct eta_fan_policy_input in={0};struct eta_fan_ramp_input ri={0};struct eta_fan_ramp_output ro={0};
-    eta_u64 now=eta_now(),remaining;int req=0,enabled=0;
-    (void)work;mutex_lock(&eta_state.lock);
-    if(!eta_state.live || eta_state.blocked || eta_state.fault ||
-       !eta_adapter_permissions(&eta_state.config,now,eta_state.deadline)) {
+    eta_u64 now,remaining;int req=0,enabled=0;
+    (void)work;mutex_lock(&eta_state.lock);now=eta_now();
+    if(!eta_state.live || eta_state.blocked || !eta_state.config.revision || !eta_state.wq) {
         eta_release_locked();eta_fan_policy_reset(&eta_state.policy);goto done;
     }
+    /* A complete validated config authorizes reads, not actuation. Revoke any
+     * old owner BEFORE sampling even when the publisher/lease has disappeared. */
+    if(eta_state.fault || !eta_adapter_permissions(&eta_state.config,now,eta_state.deadline)) {
+        eta_release_locked();eta_fan_policy_reset(&eta_state.policy);
+    }
     now=eta_now();eta_sample_locked(&in,now);now=eta_now();in.now_ms=now;eta_state.sample_completed_ms=now;
-    if(!eta_adapter_permissions(&eta_state.config,now,eta_state.deadline)) {
+    if(eta_state.fault || !eta_adapter_permissions(&eta_state.config,now,eta_state.deadline)) {
         eta_release_locked();eta_fan_policy_reset(&eta_state.policy);goto done;
     }
     eta_fan_policy_step(&eta_state.policy,&eta_state.config.policy,&in,&eta_state.output);
@@ -274,12 +301,17 @@ readback:
         eta_state.fault=-5;eta_release_locked();goto done;
     }
 requeue:
+done:
     now=eta_now();
-    if(eta_state.live && !eta_state.blocked && !eta_state.fault && now<eta_state.deadline) {
-        remaining=eta_state.deadline-now;if(remaining>ETA_SAMPLE_PERIOD_MS) remaining=ETA_SAMPLE_PERIOD_MS;
+    if(eta_state.fault || !eta_adapter_permissions(&eta_state.config,now,eta_state.deadline)) eta_release_locked();
+    if(eta_state.live && !eta_state.blocked && eta_state.config.revision && eta_state.wq) {
+        remaining=ETA_SAMPLE_PERIOD_MS;
+        /* Wake early only for a still-authorized lease. Expired/disabled
+         * control must not create a zero-delay telemetry busy loop. */
+        if(!eta_state.fault && eta_adapter_permissions(&eta_state.config,now,eta_state.deadline) &&
+           eta_state.deadline-now<remaining) remaining=eta_state.deadline-now;
         queue_delayed_work_on(ETA_WORK_CPU_UNBOUND,eta_state.wq,&eta_state.work,__msecs_to_jiffies((unsigned int)remaining));
     } else eta_release_locked();
-done:
     mutex_unlock(&eta_state.lock);
 }
 
@@ -288,7 +320,7 @@ ssize_t eta_adapter_level_store(struct device *d,struct device_attribute *a,cons
     ssize_t result;
     mutex_lock(&eta_state.lock);
     if(d==eta_state.led && eta_state.owned && !eta_adapter_permissions(&eta_state.config,eta_now(),eta_state.deadline)) {
-        eta_release_locked();eta_fan_policy_reset(&eta_state.policy);eta_state.temp_mask=0;
+        eta_release_locked();eta_fan_policy_reset(&eta_state.policy);
     }
     result=d==eta_state.led && eta_state.owned ? -16 : eta_original_level_store(d,a,b,n);
     mutex_unlock(&eta_state.lock);return result;
@@ -298,7 +330,7 @@ ssize_t eta_adapter_state_store(struct device *d,struct device_attribute *a,cons
     ssize_t result;
     mutex_lock(&eta_state.lock);
     if(d==eta_state.led && eta_state.owned && !eta_adapter_permissions(&eta_state.config,eta_now(),eta_state.deadline)) {
-        eta_release_locked();eta_fan_policy_reset(&eta_state.policy);eta_state.temp_mask=0;
+        eta_release_locked();eta_fan_policy_reset(&eta_state.policy);
     }
     result=d==eta_state.led && eta_state.owned ? -16 : eta_original_state_store(d,a,b,n);
     mutex_unlock(&eta_state.lock);return result;
@@ -315,10 +347,10 @@ static ssize_t eta_config_store(struct device *d,struct device_attribute *a,cons
     /* A late renewal cannot retroactively bridge an already-expired lease,
      * even when a delayed worker has not yet observed the expiration. */
     if(eta_state.deadline && now>=eta_state.deadline) {
-        eta_release_locked();eta_fan_policy_reset(&eta_state.policy);eta_state.temp_mask=0;
+        eta_release_locked();eta_fan_policy_reset(&eta_state.policy);eta_invalidate_sample_locked();
     }
     if(config.revision!=eta_state.config.revision) {
-        eta_release_locked();eta_fan_policy_reset(&eta_state.policy);eta_state.fault=0;eta_state.temp_mask=0;
+        eta_release_locked();eta_fan_policy_reset(&eta_state.policy);eta_state.fault=0;eta_invalidate_sample_locked();
         if(!eta_equal_bytes(config.zone,eta_state.config.zone,sizeof(config.zone))) ++eta_state.channel_generation;
     }
     eta_state.config=config;eta_state.deadline=now+config.lease_ms;
@@ -329,7 +361,7 @@ done:
 }
 static ssize_t eta_status_show(struct device *d,struct device_attribute *a,char *b)
 {
-    int result,ready,target,output=-1,fusion_valid,fusion_mc,demand,policy_kind,cooling;
+    int result,ready,target,output=-1,fusion_valid,fusion_mc,demand,policy_kind,cooling,telemetry_valid;
     eta_u64 now;long long sample_age=-1,sample_duration=-1;
     (void)d;(void)a;mutex_lock(&eta_state.lock);now=eta_now();
     if(eta_state.live && !eta_state.blocked) {
@@ -353,9 +385,13 @@ static ssize_t eta_status_show(struct device *d,struct device_attribute *a,char 
     target=ready?(int)eta_state.output.target:-1;
     fusion_valid=ready && eta_state.output.fusion.valid;
     fusion_mc=fusion_valid?eta_state.output.fusion.temperature_mc:-1;
+    telemetry_valid=eta_state.live && !eta_state.blocked && eta_state.power_sample_valid &&
+        eta_state.sample_at_ms>0 && now>=eta_state.sample_completed_ms &&
+        eta_state.sample_completed_ms>=eta_state.sample_at_ms && now-eta_state.sample_at_ms<ETA_FAN_FRESH_MS &&
+        eta_state.telemetry_fusion.valid;
     demand=target;policy_kind=ready?(int)eta_state.output.policy:0;cooling=ready?(int)eta_state.output.cooling:0;
     if((eta_state.readback_mask&3)==3) output=eta_state.physical_state?eta_state.physical_request:0;
-    result=scnprintf(b,4096,"NONRELEASE protocol=2 configProtocol=%u live=%u blocked=%u configured=%u owned=%u fault=%d leaseUntil=%llu configRevision=%llu ownerEpoch=%llu strategy=%u ready=%d target=%d output=%d requestedLevel=%d physicalState=%d effective=%d readbackMask=%u tempValidMask=%u temp0=%d temp1=%d temp2=%d temp3=%d sampleAtMs=%llu nowMs=%llu power=%u powerEpoch=%llu sourcePresentMask=%u sourceOnlineMask=%u sourceFailedMask=%u batteryStatus=%d batteryPresent=%d reason=%u fusionValid=%d fusionMc=%d demand=%d policyKind=%d cooling=%d samplePeriodMs=%u sampleAgeMs=%lld sampleCompletedAtMs=%llu sampleDurationMs=%lld sampleFreshMs=%u candidateLabel=" ETA_FAN_CANDIDATE_LABEL "\n",
+    result=scnprintf(b,4096,"NONRELEASE protocol=2 configProtocol=%u live=%u blocked=%u configured=%u owned=%u fault=%d leaseUntil=%llu configRevision=%llu ownerEpoch=%llu strategy=%u ready=%d target=%d output=%d requestedLevel=%d physicalState=%d effective=%d readbackMask=%u tempValidMask=%u temp0=%d temp1=%d temp2=%d temp3=%d sampleAtMs=%llu nowMs=%llu power=%u powerEpoch=%llu sourcePresentMask=%u sourceOnlineMask=%u sourceFailedMask=%u batteryStatus=%d batteryPresent=%d reason=%u fusionValid=%d fusionMc=%d demand=%d policyKind=%d cooling=%d samplePeriodMs=%u sampleAgeMs=%lld sampleCompletedAtMs=%llu sampleDurationMs=%lld sampleFreshMs=%u telemetryFusionValid=%d telemetryFusionMc=%d telemetryContributorMask=%u candidateLabel=" ETA_FAN_CANDIDATE_LABEL "\n",
         eta_state.config.protocol_version,eta_state.live,eta_state.blocked,eta_state.config.enabled,eta_state.owned,eta_state.fault,
         (unsigned long long)eta_state.deadline,(unsigned long long)eta_state.config.revision,(unsigned long long)eta_owner_epoch,
         eta_state.config.strategy,ready,target,output,eta_state.physical_request,eta_state.physical_state,eta_state.last_effective,
@@ -363,7 +399,9 @@ static ssize_t eta_status_show(struct device *d,struct device_attribute *a,char 
         (unsigned long long)eta_state.sample_at_ms,(unsigned long long)now,(unsigned int)eta_state.power,(unsigned long long)eta_state.power_epoch,
         eta_state.source_present_mask,eta_state.source_online_mask,eta_state.source_failed_mask,eta_state.battery_status,eta_state.battery_present,(unsigned int)eta_state.output.reason,
         fusion_valid,fusion_mc,demand,policy_kind,cooling,ETA_SAMPLE_PERIOD_MS,sample_age,
-        (unsigned long long)eta_state.sample_completed_ms,sample_duration,ETA_FAN_FRESH_MS);
+        (unsigned long long)eta_state.sample_completed_ms,sample_duration,ETA_FAN_FRESH_MS,telemetry_valid,
+        telemetry_valid?eta_state.telemetry_fusion.temperature_mc:-1,
+        telemetry_valid?eta_state.telemetry_fusion.contributor_mask:0);
     mutex_unlock(&eta_state.lock);return result;
 }
 static ssize_t eta_config_snapshot_show(struct device *d,struct device_attribute *a,char *b)
@@ -404,7 +442,7 @@ int eta_adapter_capture_group(struct kobject *k,const struct attribute_group *g)
 static void eta_quiesce(void)
 {
     mutex_lock(&eta_state.lock);eta_state.blocked=1;eta_state.deadline=0;eta_release_locked();
-    eta_fan_policy_reset(&eta_state.policy);eta_state.temp_mask=0;mutex_unlock(&eta_state.lock);
+    eta_fan_policy_reset(&eta_state.policy);eta_invalidate_sample_locked();mutex_unlock(&eta_state.lock);
     if(eta_state.wq) cancel_delayed_work_sync(&eta_state.work);
 }
 static void eta_adapter_cleanup(void *opaque)
@@ -466,8 +504,14 @@ int eta_adapter_suspend(struct device *dev) { eta_quiesce();return eta_original_
 int eta_adapter_resume(struct device *dev)
 {
     int result=eta_original_oplus_fan_resume(dev);
-    mutex_lock(&eta_state.lock);if(!result && eta_state.live) eta_state.blocked=0;mutex_unlock(&eta_state.lock);
-    /* Resume invalidates the lease. A fresh authorized config is mandatory. */
+    mutex_lock(&eta_state.lock);
+    if(!result && eta_state.live) {
+        eta_state.blocked=0;
+        if(eta_state.config.revision && eta_state.wq)
+            mod_delayed_work_on(ETA_WORK_CPU_UNBOUND,eta_state.wq,&eta_state.work,0);
+    }
+    mutex_unlock(&eta_state.lock);
+    /* Resume restarts reads only. A fresh authorized lease is mandatory for control. */
     return result;
 }
 __attribute__((used,section(".eta_fan_nonrelease")))

@@ -27,12 +27,14 @@ public final class CompatibilityTest {
     public static void main(String[] args)throws Exception{
         ok(CompatibilityCatalog.hardwareSupported("PMS110","changed-device"));
         ok(CompatibilityCatalog.hardwareSupported("unlisted-model","other","一加 Ace 7 Pro"));
-        ok(CompatibilityCatalog.hardwareSupported("OnePlus ACE7","other",""));
-        ok(CompatibilityCatalog.hardwareSupported("other","other","OnePlus Ace 7T"));
+        ok(!CompatibilityCatalog.hardwareSupported("OnePlus ACE7","other",""));
+        ok(!CompatibilityCatalog.hardwareSupported("other","other","OnePlus Ace 7T"));
         ok(!CompatibilityCatalog.hardwareSupported("other","OP64F1L1",""));
         ok(!CompatibilityCatalog.hardwareSupported("other","other","Ace 70 Pro"));
-        ok(CompatibilityCatalog.hardwareSupported("other","other","一加 Ace7V"));
+        ok(!CompatibilityCatalog.hardwareSupported("other","other","一加 Ace7V"));
         ok(!CompatibilityCatalog.hardwareSupported("other","other","OnePlus Ace 6"));
+        ok(CompatibilityCatalog.hardwareSupported("ACE7Pro","other",""));
+        ok(!CompatibilityCatalog.hardwareSupported("ACE7ProPlus","other",""));
         ok(!CompatibilityCatalog.bridgeSupported(81));ok(CompatibilityCatalog.bridgeSupported(82));ok(CompatibilityCatalog.bridgeSupported(100));
         Engine e=new Engine();FanServiceCompat.Bootstrap boot=FanServiceCompat.bootstrap(Engine.class,Ctx.class,Hdl.class);
         FanServiceCompat f=resolve(boot,e,Controller.class,Config.class);

@@ -38,10 +38,11 @@ final class RootProviderAccess {
 
     Bundle call(String authority, String method, String argument, Bundle extras) {
         if (!("dev.eta.acefan.data".equals(authority) && ("config".equals(method)
-                || DailyFanContract.READ.equals(method) || "pushRoot".equals(method)))
+                || DailyFanContract.READ.equals(method) || "pushRoot".equals(method)
+                || "rootHandoff".equals(method) || "kernelHandoff".equals(method)))
                 && !("settings".equals(authority) && ("GET_system".equals(method) || "GET_global".equals(method))))
             throw new SecurityException("root provider bridge operation outside relay contract");
-        boolean readonly = !"pushRoot".equals(method);
+        boolean readonly = !"pushRoot".equals(method) && !"rootHandoff".equals(method);
         for (int attempt = 0; ; attempt++) {
             try { return callOnce(authority, method, argument, extras); }
             catch (Exception e) {

@@ -42,6 +42,8 @@ public final class DataProvider extends ContentProvider {
     private final Object pushLock = new Object();
     private long lastPushElapsed, lastRootPushElapsed;
     private volatile long rootPublisherAt; // elapsedRealtime, granted only after a UID0 pushRoot commit
+    private volatile Bundle kernelHandoff; // Ephemeral UID0 release acknowledgement; never persisted.
+    private final Object handoffLock = new Object();
 
     private static final UriMatcher MATCHER = new UriMatcher(UriMatcher.NO_MATCH);
     static { MATCHER.addURI(AUTHORITY, "samples", MATCH_SAMPLES); }
@@ -195,6 +197,42 @@ public final class DataProvider extends ContentProvider {
             out.putDouble("fanWeight", FusionTemp.WEIGHTS[3]);
             out.putDouble("mosWeight", FusionTemp.WEIGHTS[1]);
             return out;
+        }
+        if ("rootHandoff".equals(method)) {
+            if (!KernelProtocol.rootPublisher(caller())) throw new SecurityException("rootHandoff requires UID 0");
+            if (extras == null) throw new IllegalArgumentException("release evidence required");
+            KernelReport proof = KernelReport.parse(extras.getString("status"));
+            long revision = extras.getLong("revision", 0);
+            if (!KernelHandoff.released(proof, revision) || !KernelHandoff.manual(extras.getString("mode"))
+                    || extras.getString("level") == null) throw new IllegalArgumentException("unconfirmed manual release");
+            Bundle token = new Bundle();
+            token.putBoolean("released", true); token.putLong("revision", revision);
+            long observedAt = extras.getLong("at", 0);
+            if (!KernelHandoff.fresh(observedAt, android.os.SystemClock.elapsedRealtime(), extras.getString("mode"),
+                    extras.getString("level"), extras.getString("mode"), extras.getString("level")))
+                throw new IllegalArgumentException("stale release evidence");
+            token.putLong("at", observedAt); token.putLong("generation", extras.getLong("generation", -1));
+            token.putBoolean("consumed", false);
+            token.putString("mode", extras.getString("mode")); token.putString("level", extras.getString("level"));
+            token.putString("status", extras.getString("status"));
+            synchronized (handoffLock) { kernelHandoff = token; }
+            getContext().getContentResolver().notifyChange(Uri.parse("content://" + AUTHORITY + "/kernelHandoff"), null);
+            Bundle out = new Bundle(); out.putBoolean("ok", true); return out;
+        }
+        if ("consumeHandoff".equals(method)) {
+            if (caller() != 1000) throw new SecurityException("OEM acknowledgement requires UID 1000");
+            synchronized (handoffLock) {
+                Bundle token = kernelHandoff;
+                if (token == null || extras == null || extras.getLong("at", 0) != token.getLong("at", -1))
+                    throw new IllegalArgumentException("handoff token changed");
+                Bundle consumed = new Bundle(token); consumed.putBoolean("consumed", true);
+                kernelHandoff = consumed;
+            }
+            Bundle out = new Bundle(); out.putBoolean("ok", true); return out;
+        }
+        if ("kernelHandoff".equals(method)) {
+            requireRead(); Bundle token = kernelHandoff;
+            return token == null ? new Bundle() : new Bundle(token);
         }
         if ("kernelBackend".equals(method)) {
             requireRead();

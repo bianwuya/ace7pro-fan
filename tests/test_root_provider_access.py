@@ -112,6 +112,12 @@ public class RootProviderAccessTest {
   fails(IllegalStateException.class,()->exhausted.call("dev.eta.acefan.data","config",null,null));yes(m.gets==2&&m.removes==2);
   m=manager();m.dieAlways=true;RootProviderAccess uncertain=bridge();
   fails(IllegalStateException.class,()->uncertain.call("dev.eta.acefan.data","pushRoot",null,new Bundle()));yes(m.gets==1&&m.removes==1);
+  m=manager(); RootProviderAccess handoff=bridge();
+  handoff.call("dev.eta.acefan.data","rootHandoff",null,new Bundle());yes(m.calls==1&&m.removes==1);
+  handoff.call("dev.eta.acefan.data","kernelHandoff",null,null);yes(m.calls==2&&m.removes==2);
+  m=manager();m.dieAlways=true;RootProviderAccess uncertainHandoff=bridge();
+  fails(IllegalStateException.class,()->uncertainHandoff.call("dev.eta.acefan.data","rootHandoff",null,new Bundle()));
+  yes(m.gets==1&&m.removes==1);
   android.os.Process.uid=12345;fails(SecurityException.class,()->bridge());
   System.out.println("PASS RootProviderAccess: "+assertions+" assertions; root attribution, GET envelope, allowlist, finally release, read death retry, no uncertain push replay");
  }
