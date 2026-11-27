@@ -2,7 +2,11 @@
 
 **管理审计日期：2026-11-03。** 这是有时点的记录，不是实时设备状态。兼容矩阵以 [COMPATIBILITY.md](../COMPATIBILITY.md) 为主；待办见 [TASKS.md](../TASKS.md)。
 
-## 当前：code29兼容恢复已实际安装，游戏实机验收仍待完成
+## 当前观察：code29单次真实游戏进入/退出验证通过
+
+Horae已在自然恢复后实际运行旧温度解耦映像eae728…，风扇由旧BLOCKED自然恢复NORMAL。用户允许主屏后，真实王者触发game1、日用内核owned0/gates63，原厂风扇实际17档、FG实测保持19839RPM；退出到桌面game0后owned1/gates127，日用target10恢复并按normal斜坡降档。原设置、独立充电及EXGT未改，未清故障/强制节点/重启；主屏已归还。见[运行证据与未验范围](GAME-RUNTIME-RECOVERY.md)。这只覆盖当前stage4+code29的一次实测，不代表同档竞态、所有组合或下一启动stage5全部通过。
+
+## 历史交付观察：code29已安装，尚在等待正常服务恢复
 
 用户重申只接管日用、游戏保持原厂。已将遗漏的Horae风扇温度解耦补回原签名`0.9.2-game-compat/code29`统一包，KSU实际安装退出0并核对App29及待启动payload哈希；本boot已只读bind旧eae728…兼容映像。当时充电且Horae已stopped，本任务不拉起，须等其正常恢复后核验进程身份。正式Root relay已接续code29，Provider真实回传BLOCKED，不再把policy fault0误作硬件NORMAL。原日用v8/充电v1未变。
 

@@ -1,6 +1,10 @@
-# 游戏模式回归：code29已安装，正常游戏实机验收仍待完成
+# 游戏模式回归：code29单次真实游戏进入/退出已通过
 
-## 最新执行结果：不再停在源码阶段
+## 最新实测：温度解耦已在进程生效，游戏有实际转速
+
+用户允许主屏后，已真实进入王者荣耀：gamemode_delayed自动为1，日用内核owned0/gates63，原厂风扇17档、NORMAL，FG实测保持19839RPM。返回桌面后game0、owned1/gates127，日用target10并沿normal斜坡降档；原设置保持。此前Horae自然恢复的实际进程SHA已确认为eae728…，外部Temp29.50与原厂kpTemp约38°C同时存在。见[原始恢复与游戏周期记录](GAME-RUNTIME-RECOVERY.md)。本结果不是所有游戏/同档竞态或下一启动stage5的完整生产验收，不再沿用下方“当前充电/停止/BLOCKED”历史观察解释现状。
+
+## 历史执行结果：从源码推进到code29实际安装
 
 用户要求立即推进后，已构建并实际安装`0.9.2-game-compat/code29`统一包，安装器退出0、App实装versionCode29、待启动模块身份/哈希回读正确。复用原stage5 KO与helper，不修改内核游戏策略。新Root relay `dm_0b22c1cc`（核验时PID14913）接续code29，正式Provider回传真实BLOCKED；原日用v8/充电v1未改。只停止了本项目旧Root relay，不启停原厂服务、不卸载驱动。
 

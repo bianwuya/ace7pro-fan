@@ -10,9 +10,10 @@
 
 ## 当前P0：原厂游戏兼容回归
 
-- GAME-REGRESSION：进行中。仅接管日用、保留原厂游戏与旧温度解耦是硬边界。已确认统一内核包移除了原Horae解耦加载链却保留29.5°C伪装；原stock到旧patched单指令差异核对通过。只读启动兼容源码/真实硬件回传修复已随原签名code29统一包实际安装，Root新回传已核实；本boot仅恢复Horae只读映像，当前充电下服务停止，等正常恢复后再核验实际进程。不改内核游戏策略、独立充电或EXGT。完整范围和结果见 [游戏回归](knowledge/GAME-REGRESSION.md)。
+- GAME-REGRESSION：进行中。仅接管日用、保留原厂游戏与旧温度解耦是硬边界。已确认统一内核包移除了原Horae解耦加载链却保留29.5°C伪装；原stock到旧patched单指令差异核对通过。只读启动兼容源码/真实硬件回传修复已随原签名code29统一包实际安装，Root新回传已核实；后续已核实Horae正常恢复的实际进程使用旧修复身份，主屏真实游戏进入/退出的一次链路通过，详细见[实机记录](knowledge/GAME-RUNTIME-RECOVERY.md)。不改内核游戏策略、独立充电或EXGT。完整范围和结果见 [游戏回归](knowledge/GAME-REGRESSION.md)。
 - PUBLISH-092：已完成。code29原签名统一ZIP已实际安装并上传原风扇库预发布`kernel-0.9.2-code29`；源码2994b0e，4个资产重新下载核对与本地逐字节一致，旧包保留。见[实际交付](releases/0.9.2-game-compat/DELIVERY.md)。
-- GAME-HANDOFF：阻塞。现有stop+release没有确认OEM同档接续；不能盲重放陈旧OEM快照，须有真实游戏进入/退出、相同目标档、手动/故障优先的回归证据。BLOCKED原保护不得绕过；未完成前不发布“游戏已修复”版本。
+- GAME-HANDOFF：进行中。已实测日用10→原厂游戏17（19839RPM、owned0）→桌面日用17逐级回10（owned1），这一次真实路径通过；不是单纯stop+release推断。相同目标档竞态及全部手动/故障组合尚未覆盖；后续仍观察到驱动BLOCKED，不能盲重放陈旧OEM快照或绕过保护，不标全场景/长时稳定。
+- DISTRIBUTE-092：已完成。保留原统一ZIP字节，指定版本目录新增[分发必读](releases/0.9.2-game-compat/DISTRIBUTION.md)及补充校验，明确精确机型/内核、有限实测、后续BLOCKED和stage5未重启验收的边界；不改原4个已发布资产，不自动再次上传。
 
 ## 0.9.1 上次交付修复
 
