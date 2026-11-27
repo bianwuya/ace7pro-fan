@@ -6,7 +6,7 @@
 
 - 修复Root进程FG通道，App/code28及对应Root relay已实装；正式Provider已记录10档13119RPM、9档12059RPM，停机值清空通过。不是日志/档位估计，旧Hook保留，前端屏幕未复核。
 - 用户实测40.597°C仍10档已确认为daily移植遗漏更高需求。新核心按四路融合使用本机普通阶梯并max(最低档,阶梯)，40°C升温目标16，启停/回差/充电/保护及normal斜坡保留。129139×2核心断言、adapter14及relink24项通过，新驱动仍待重启实机验收。
-- 同签名App和新KO/helper统一ZIP已通过真实KSU安装，metadata身份/标签读回正确；本次boot及驻留stage4驱动未改变，因此新阶梯尚未生效，用户自行重启。所有修改落本地工程；包上传只去已核对的风扇项目仓库，不是Eta。精确身份、运行和上传边界见 [当前检查点](KERNEL-CURRENT.md) 与 [版本说明](../releases/0.9.1-kernel-rpm/NOTES.md)。
+- 同签名App和新KO/helper统一ZIP已通过真实KSU安装，metadata身份/标签读回正确；本次boot及驻留stage4驱动未改变，因此新阶梯尚未生效，用户自行重启。所有修改落本地工程；源码提交658b0d8已推风扇库修复分支，统一包预发布已上传并重新下载核对相同SHA256，没有操作Eta库或main。精确身份、运行和上传边界见 [当前检查点](KERNEL-CURRENT.md) 与 [版本说明](../releases/0.9.1-kernel-rpm/NOTES.md)。
 
 ## 历史：0.9.0-kernel r5自然起转与升降档（2026-11-27 18:30 +08:00）
 

@@ -8,7 +8,7 @@
 
 - RPM-091：已完成代码/构建/安装和真实Provider链验证。独立Root被动FG接收实收，10档13119RPM、9档12059RPM、同档保持/换档重测/停机清空通过；不改旧Hook，前端屏幕视觉未复核。
 - DAILY-091：进行中。40.597°C固定10档已定位并修复为本机普通阶梯max(floor,step)，用户四路融合/启停与保护保留。核心优化和UBSan各129139断言、adapter14/relink24项通过，新KO/helper已随统一ZIP实装到下一启动；运行中旧驱动未卸载，新阶梯待用户自行重启验收。
-- PUBLISH-091：进行中。所有修改落本地工程，统一包实际安装及哈希已核对；目标为已有 `bianwuya/ace7pro-fan`，上传完成必须读回资产，不操作Eta仓库。见 [本版说明](releases/0.9.1-kernel-rpm/NOTES.md)。
+- PUBLISH-091：已完成。所有源码先在本地提交 `658b0d8`，已推送现有风扇库修复分支 `fix/kernel-daily-rpm-code28`，未改main/Eta库。统一ZIP已实际安装并上传 `kernel-0.9.1-code28` 预发布；GitHub资产状态/摘要及实际下载回读哈希与本地包完全一致。见 [本版说明](releases/0.9.1-kernel-rpm/NOTES.md) 与 [交付记录](releases/0.9.1-kernel-rpm/DELIVERY.md)。
 
 ## KSU 单 ZIP 内核后端
 

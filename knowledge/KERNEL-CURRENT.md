@@ -10,7 +10,7 @@
 - 正式Provider已有13条held实测回传，包含10档13119RPM、9档12059RPM；后续同档波动不覆盖首次有效保持，换档重新获取、停机清空均有实际数据。App数据入口字段未变，前端未做屏幕视觉复核。原39项测速保持、23项新事件解析/联动、175项Root桥及2项路径检查通过。
 - **统一ZIP已实际安装成功**：`Download/eta/工作区产物/ace7pro-fan/0.9.1-kernel-rpm/ACE7Pro_Fan_0.9.1-kernel-rpm-code28.zip`，SHA256 `155a6abe82c47a5b610af8b5ee6c360e21b2ac6de5e655e3a68a49dbacaa31ef`。metadata真实新helper `ff41b64a5b911510010a414cd4780f6ffb26e9c479fbbaa5e47e39d0f713e55f`及新KO哈希/正确vendor_file标签均回读；KSU退出0/登记ok。
 - 运行boot仍 `a7d4c185-a558-4bb9-8b8a-d995f80a3993`，当前驻留仍旧stage4 KO `982b...`；因此RPM修复已运行，但新的日用阶梯要用户自行重启后才生效。未装载/卸载新旧硬件驱动，不以主机回归冒充新KO实际升到16档。日用v8/充电v1所有原设置保持，充电项目未改。
-- 用户要求所有修改落本地工作区后将包上传现有风扇仓库 `bianwuya/ace7pro-fan`，不是Eta仓库；本地origin和实际GitHub仓库写权限已核对。GitHub完成状态单独以交付记录/远端回读为准，不把准备上传说成已上传。源码/包不得包含密钥、私有原始日志或OEM分析样本。
+- 用户要求所有修改落本地工作区后上传现有风扇库，不是Eta库。已在本地提交源码 `658b0d8960f9ff031dcba19a67abb64bfa31a050` 并推到 `bianwuya/ace7pro-fan` 的 `fix/kernel-daily-rpm-code28`，没有改main。统一ZIP/校验/公开构建身份/说明已上传预发布 `kernel-0.9.1-code28`，远端asset摘要与重新下载的ZIP SHA256均为 `155a6abe82c47a5b610af8b5ee6c360e21b2ac6de5e655e3a68a49dbacaa31ef`，不是仅提交上传请求。详情见 [交付记录](../releases/0.9.1-kernel-rpm/DELIVERY.md)。密钥、私有原始日志和OEM分析样本均未进入Git或公开资产。
 - 证据：`build/root-fg-fix/` 的实际RootFG/probe、正式Provider历史提取、签名构建、联合包校验、KSU安装和下一启动readback；新驱动证据 `build/kernel-replace-audit/driver-relink/stage5-daily-step/`。详细身份与限制见 [本版说明](../releases/0.9.1-kernel-rpm/NOTES.md)。
 
 ## 历史：自然起转、升降档、降温停机及再次起转已有真机证据
