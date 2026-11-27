@@ -53,16 +53,16 @@ python3 tools/project.py release --output dist/0.3.0-compat-local-check
 
 本地发布包包含 `BUILD_INFO.json`（提交、版本、SHA256、公开签名身份、OEM fixture 是否存在、离线验证边界）和 `SHA256SUMS.txt`。物理验收仍是独立步骤，不能因生成了此包而把兼容结论升级。重复运行请换新目录，不覆盖已交付包。
 
-用户已授权通过账号备份；当前远端是私有 [bianwuya/ace7pro-fan](https://github.com/bianwuya/ace7pro-fan)，`main` 跟踪 `origin/main`。首次 GitHub CI 已实际通过（精确提交/运行链接见 [状态快照](STATE.md)）。它只跑无私有依赖的检查和测试，不持有签名材料，缺少OEM样本的测试明确SKIPPED；不冒称完整构建或设备验收。备份、恢复、范围和后续同步见 [REMOTE_BACKUP.md](REMOTE_BACKUP.md)。没有配置自动push或定时任务；许可证仍未代选。
+项目曾按当次授权备份到 [bianwuya/ace7pro-fan](https://github.com/bianwuya/ace7pro-fan)。首次 GitHub CI 的提交和运行记录见 [状态快照](STATE.md)；该次只跑无私有依赖的检查和测试，缺少OEM样本的测试记为SKIPPED，不代表完整构建或设备验收。远端配置、可见性变更及恢复历史见 [REMOTE_BACKUP.md](REMOTE_BACKUP.md)，不作为本次远端授权或实时状态。许可证仍未代选。
 
 命令实现状态、验收证据及剩余管理任务见 [TASKS.md](../TASKS.md)。
 
 ## Git 与交付
 
-- 保留既有未提交改动；按任务切分变更，只纳入明确范围的文件。已有功能基线与本次管理分开提交，提交前看暂存差异；不强推/重写历史。
-- 不假设远端、分支保护或 CI；执行前检查实际配置。不要自动创建后台定时任务。
-- 交付时分别报告文档/代码变更、测试、离线构建、设备安装与实机验收证据；未做的层级明确写为待办。
-- 详细当前证据与时点：[STATE.md](STATE.md)；待办与验收标准：[TASKS.md](../TASKS.md)。
+- 每轮实际修改后，更新 [知识索引](INDEX.md) 及 [计划/交接](../TASKS.md)；用 [STATE.md](STATE.md) 或原始结果区分已验证、未验证、剩余事项和下一步。设备状态未重采样时不要更新成实时观察。
+- 保留既有未提交改动；按任务切分，只纳入本轮明确范围的文件。检查 hook 与暂存内容，运行 `python3 tools/project.py check --staged`，在本地提交并读回提交号。不整树暂存、不重写历史。
+- 默认不推送、不上传产物、不建 PR 或 Release、不触发云构建。已有备份和发布历史不是后续授权；本次明确授权后再核对实际远端与操作范围。不为收尾自动创建定时任务。
+- 交付时分别报告代码/文档、测试、离线构建、设备安装、实机验收和远端操作；未执行的不能报已完成。
 
 ## GitHub自动构建
 
