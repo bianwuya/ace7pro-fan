@@ -1,3 +1,9 @@
+# 0.9.2-game-compat
+
+- 恢复统一内核包遗漏的原厂风扇真实拟合温度解耦：精确stock派生旧单指令修复并只读bind，双SHA验证；保留29.5°C外部伪装，不启停Horae、不接管游戏目标。启动链和包白名单/schema/权限同步。
+- 修复硬件状态误报：Root读取原status，BLOCKED不再因policy fault0显示NORMAL，缺证据UNKNOWN；旧调用兼容保留。原日用阶梯KO/helper、FG通道及全部保护保持。
+- 原签名App29与统一KSU包已实际安装；本boot兼容映像已挂回，但充电时Horae停止，未强制启动。Root新版实际回传及原设置核对通过；仍待正常服务恢复与真实游戏进入/退出/同档交还验收，不标生产完整通过。见[版本说明](releases/0.9.2-game-compat/NOTES.md)。
+
 # 0.9.1-kernel-rpm
 
 - 修复Root/Hook进程隔离导致RPM保持缓存无法进入内核回传：新增独立Root被动FG接收器，沿用原测量归属/同档首次保持/调试和故障作废规则，旧Hook保留。正式Provider已实收10档13119RPM与9档12059RPM，停转清除通过；不是日志推算。

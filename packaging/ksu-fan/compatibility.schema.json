@@ -180,6 +180,9 @@
         "watchdog.sh": {
           "$ref": "#/$defs/sha256"
         },
+        "oem-fan-compat.sh": {
+          "$ref": "#/$defs/sha256"
+        },
         "preinit/preinit.conf": {
           "$ref": "#/$defs/sha256"
         },

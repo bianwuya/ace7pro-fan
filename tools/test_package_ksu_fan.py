@@ -649,6 +649,18 @@ class KsuFanPackagingTests(unittest.TestCase):
         self.assertIn('watchdog.sh', plan.manifest['payloads'])
         self.assertIn('watchdog.sh', plan.compatibility['templates'])
 
+    def test_oem_game_compat_text_is_explicitly_hashed_and_preserved(self):
+        for name in ('oem-fan-compat.sh', 'post-fs-data.sh'):
+            path = self.templates / name
+            path.write_text('#!/system/bin/sh\nprintf "%s\\n" "Temporary game compatibility parser fixture"\n')
+        self.refresh_manifest()
+        self.refresh_record()
+        plan = pkg.release_plan(self.inputs())
+        for name in ('oem-fan-compat.sh', 'post-fs-data.sh'):
+            self.assertEqual(plan.entries[name], (self.templates / name).read_bytes())
+            self.assertIn(name, plan.manifest['payloads'])
+            self.assertIn(name, plan.compatibility['templates'])
+
     def test_bounded_elf_mutation_never_leaks_parser_exceptions(self):
         import random
         rng = random.Random(7)

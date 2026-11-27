@@ -18,11 +18,14 @@ javac --release 8 -Xlint:-options -encoding UTF-8 -d build/test-classes \
     src/dev/eta/acefan/KernelProtocol.java src/dev/eta/acefan/KernelReport.java src/dev/eta/acefan/BuildInfo.java \
     src/dev/eta/acefan/ControlCycle.java src/dev/eta/acefan/RuntimeEvidence.java src/dev/eta/acefan/DiagnosticReport.java \
     src/dev/eta/acefan/DirectFanControl.java src/dev/eta/acefan/OemFanRamp.java src/dev/eta/acefan/FanNodeIo.java tests/*.java
-for name in RootFgEventTest KernelGateInputsTest DailyFanPolicyTest FusionTempTest ChargeCurveTest WakeHandoffTest SamplingTest CompatibilityTest DiagnosticReportTest RuntimeEvidenceTest ControlCycleTest FrontPresentationTest FanRpmTest DirectFanControlTest OemFanRampTest FanNodeIoTest FanNodeBridgeTest; do
+for name in RootFgEventTest KernelGateInputsTest KernelHardwareStatusTest DailyFanPolicyTest FusionTempTest ChargeCurveTest WakeHandoffTest SamplingTest CompatibilityTest DiagnosticReportTest RuntimeEvidenceTest ControlCycleTest FrontPresentationTest FanRpmTest DirectFanControlTest OemFanRampTest FanNodeIoTest FanNodeBridgeTest; do
     java -cp build/test-classes "dev.eta.acefan.$name"
 done
 
-if [ "$java_only" = false ]; then sh tests/test_horae_watchdog.sh; fi
+if [ "$java_only" = false ]; then
+    sh tests/test_horae_watchdog.sh
+    sh tests/test_oem_fan_compat.sh
+fi
 
 # Root relay contract tests: pure JVM + SQLite/static contracts, NOT root/Android execution.
 mkdir -p build/test-generated

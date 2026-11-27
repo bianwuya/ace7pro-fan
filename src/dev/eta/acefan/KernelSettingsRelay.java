@@ -553,7 +553,8 @@ public final class KernelSettingsRelay {
                 Sent s = sent;
                 Map<String, Object> fields = r.fields(System.currentTimeMillis(), now(), Telemetry.getBootId(), BuildInfo.HOOK_VERSION,
                         s == null ? 0 : s.revision, s == null ? null : s.config, s == null ? -1 : s.meta.dailyVersion,
-                        s == null ? -1 : s.meta.chargeVersion, diagnostic);
+                        s == null ? -1 : s.meta.chargeVersion, diagnostic,
+                        read(new File(files.device, "status"), 128));
                 JSONObject json = new JSONObject(fields);
                 // Debug override is genuinely read; target RPM / rpm / speed caches are never consulted.
                 Telemetry.addKernelFanRpm(json, r.get("physicalState"), r.get("effective"), (String)fields.get("fanStatus"));

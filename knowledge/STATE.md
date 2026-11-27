@@ -2,6 +2,12 @@
 
 **管理审计日期：2026-11-03。** 这是有时点的记录，不是实时设备状态。兼容矩阵以 [COMPATIBILITY.md](../COMPATIBILITY.md) 为主；待办见 [TASKS.md](../TASKS.md)。
 
+## 当前：code29兼容恢复已实际安装，游戏实机验收仍待完成
+
+用户重申只接管日用、游戏保持原厂。已将遗漏的Horae风扇温度解耦补回原签名`0.9.2-game-compat/code29`统一包，KSU实际安装退出0并核对App29及待启动payload哈希；本boot已只读bind旧eae728…兼容映像。当时充电且Horae已stopped，本任务不拉起，须等其正常恢复后核验进程身份。正式Root relay已接续code29，Provider真实回传BLOCKED，不再把policy fault0误作硬件NORMAL。原日用v8/充电v1未变。
+
+现有交还只释放不确认OEM同档接续的风险仍未完成实机验证；未清故障/强制档位/重启/卸载驱动/改独立充电或EXGT。本boot仍stage4，下一启动复用stage5；温度解耦恢复不等于游戏已物理起转。现行依据与继续点见[游戏回归](GAME-REGRESSION.md)，版本身份见[code29说明](../releases/0.9.2-game-compat/NOTES.md)。
+
 ## 0.9.1-kernel-rpm：RPM已运行，日用阶梯更新已装（2026-11-27 19:05 +08:00）
 
 - 修复Root进程FG通道，App/code28及对应Root relay已实装；正式Provider已记录10档13119RPM、9档12059RPM，停机值清空通过。不是日志/档位估计，旧Hook保留，前端屏幕未复核。

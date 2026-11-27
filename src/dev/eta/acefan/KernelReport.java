@@ -70,6 +70,20 @@ public final class KernelReport {
     /** Parameters/version acknowledge only the exact successfully-written revision, not a guessed current setting. */
     public Map<String, Object> fields(long wall, long elapsed, String boot, String hookVersion,
             long sentRevision, KernelProtocol.Config config, long dailyVersion, long chargeVersion, String relayState) {
+        return fields(wall, elapsed, boot, hookVersion, sentRevision, config, dailyVersion, chargeVersion, relayState, null);
+    }
+    /** Policy fault/live are not the original driver's hardware health. Missing evidence is UNKNOWN. */
+    public static String hardwareStatus(String raw) {
+        if (raw == null) return "UNKNOWN";
+        switch (raw.trim()) {
+            case "NORMAL": case "BLOCKED": case "DAMAGED": case "RPM_LOW":
+            case "NOT_PRESENT": case "PRESENT": case "OCP_ISSUE": return raw.trim();
+            default: return "UNKNOWN";
+        }
+    }
+    public Map<String, Object> fields(long wall, long elapsed, String boot, String hookVersion,
+            long sentRevision, KernelProtocol.Config config, long dailyVersion, long chargeVersion, String relayState,
+            String driverHardwareStatus) {
         Map<String, Object> out = new LinkedHashMap<>();
         out.put("wall", wall); out.put("elapsed", elapsed); out.put("boot", boot);
         out.put("hook", KernelProtocol.LABEL); out.put("hookVersion", hookVersion); out.put("backend", KernelProtocol.BACKEND);
@@ -89,7 +103,7 @@ public final class KernelReport {
         out.put("state", nullable("physicalState")); out.put("driver", nullable("requestedLevel"));
         // state=0 means stopped even though level/level_eff may retain a previous positive request.
         out.put("effective", (get("readbackMask") & 6) == 6 ? get("physicalState") == 0 ? 0L : nullable("effective") : null);
-        out.put("fanStatus", get("fault") == 0 && get("live") == 1 ? "NORMAL" : "UNKNOWN");
+        out.put("fanStatus", hardwareStatus(driverHardwareStatus));
         boolean acknowledged = config != null && sentRevision == get("configRevision") && get("configProtocol") == 2;
         out.put("configVersion", acknowledged ? chargeVersion : -1L);
         boolean daily = power == 1, charge = power == 2 && (get("sourceOnlineMask") & 4) == 0;

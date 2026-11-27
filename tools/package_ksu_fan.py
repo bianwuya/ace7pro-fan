@@ -65,7 +65,7 @@ REQUIRED_TEMPLATES = frozenset({
     'META-INF/com/google/android/update-binary',
     'META-INF/com/google/android/updater-script',
 })
-OPTIONAL_TEMPLATES = frozenset({'post-fs-data.sh', 'boot-completed.sh', 'action.sh', 'watchdog.sh'})
+OPTIONAL_TEMPLATES = frozenset({'post-fs-data.sh', 'boot-completed.sh', 'action.sh', 'watchdog.sh', 'oem-fan-compat.sh'})
 COMMISSIONING_TEMPLATES = frozenset({'fg-debug.sh', 'allow-control'})
 FIRST_CONTROL_PROFILE = 'first-control'
 FIRST_CONTROL_ACK = 'first-control-unverified-no-auto-install-or-reboot'

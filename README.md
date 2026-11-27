@@ -1,4 +1,4 @@
-# ACE 7 系列风扇助手 0.9.1-kernel-rpm
+# ACE 7 系列风扇助手 0.9.2-game-compat
 
 OnePlus ACE 7 系列的 LSPosed / 传统 Xposed 模块与本地观测 App。作用域仅 `com.oplus.exsystemservice`。无网络权限。0.8.0 在已核验的原厂接口上独立计算目标并直接写风扇 level/state；保留原厂下游保护及驱动查表，不改温控节点。
 

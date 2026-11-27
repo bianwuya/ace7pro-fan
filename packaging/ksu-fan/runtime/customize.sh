@@ -22,7 +22,7 @@ FREE=$(df -k /metadata | tail -n 1 | awk '{print $4}')
 case "$FREE" in ''|*[!0-9]*) abort '无法确认早期存储空间。';; esac
 [ "$FREE" -ge 12288 ] || abort '早期存储剩余不足 12 MiB。'
 set_perm_recursive "$MODPATH" 0 0 0755 0644
-for script in service.sh uninstall.sh action.sh watchdog.sh fg-debug.sh; do
+for script in service.sh uninstall.sh action.sh watchdog.sh fg-debug.sh post-fs-data.sh oem-fan-compat.sh; do
     [ ! -f "$MODPATH/$script" ] || set_perm "$MODPATH/$script" 0 0 0755
 done
 set_perm "$MODPATH/preinit/bin/fan-preinit" 0 0 0755
