@@ -1,0 +1,5 @@
+#!/system/bin/sh
+# KernelSU installs this module with its built-in installer and sources customize.sh.
+# Recovery/Magisk execution is intentionally unsupported: neither provides this preinit lifecycle.
+echo '此模块必须通过 KernelSU 的模块安装功能安装，不支持 Recovery 或 Magisk。' >&2
+exit 1

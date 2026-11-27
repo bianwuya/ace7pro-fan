@@ -32,7 +32,7 @@ import de.robv.android.xposed.XposedBridge;
 import de.robv.android.xposed.XposedHelpers;
 import de.robv.android.xposed.callbacks.XC_LoadPackage;
 
-/** Device-specific policy hook: candidate-only override, no fan/thermal/sysfs writes. */
+/** Device-specific auto-target policy; verified fan-only writes retain OEM safety and side effects. */
 public final class FanHook implements IXposedHookLoadPackage {
     private static final String VERSION=BuildInfo.HOOK_VERSION;
     private static final String TARGET="com.oplus.exsystemservice";
@@ -51,6 +51,34 @@ public final class FanHook implements IXposedHookLoadPackage {
     private static final AtomicBoolean started=new AtomicBoolean(), queued=new AtomicBoolean();
     private static final ChargeCurve chargeCurve=new ChargeCurve();
     private static final DailyFanPolicy daily=new DailyFanPolicy();
+    private static final FanNodeIo.RoutedAccess nodeAccess=new FanNodeIo.RoutedAccess(new FanNodeIo.Files());
+    private static final DirectFanControl nodeControl=new DirectFanControl(new FanNodeIo(nodeAccess));
+    private static volatile Method directSetter;
+    private static volatile long lastDirectRefreshAt;
+    private static long lastDirectPollAt=-1L; // sampler cadence, not the later handler execution timestamp
+    private static volatile NodeInput nodeInput;
+    private static final class NodeInput {
+        final String mode;final int demand;final long at,configAt;final boolean allowed;
+        final DailyFanPolicy.Frame day;
+        NodeInput(String mode,int demand,long at,long configAt,boolean allowed,DailyFanPolicy.Frame day){
+            this.mode=mode;this.demand=demand;this.at=at;this.configAt=configAt;this.allowed=allowed;this.day=day;
+        }
+    }
+    private static boolean nodeReleasePending; // OEM-handler confined: retain the final disable edge on handoff
+    private static final ThreadLocal<NodeScope> nodeScope=new ThreadLocal<NodeScope>();
+    private static final ThreadLocal<StopAttempt> safetyStop=new ThreadLocal<StopAttempt>();
+    private static Runnable nodeLeaseTask; // only scheduled/cancelled on originalHandler
+    private static final class StopAttempt {
+        final DirectFanControl.SafetyStop ticket;
+        boolean confirmedOff,completed;
+        String detail="OEM setter did not reach the checked state=0 endpoint";
+        StopAttempt(DirectFanControl.SafetyStop ticket){this.ticket=ticket;}
+    }
+    private static final class NodeScope {
+        final NodeScope parent;final boolean stop,recovery;
+        boolean failed,stopConfirmed,superseded;
+        NodeScope(NodeScope parent,boolean stop,boolean recovery){this.parent=parent;this.stop=stop;this.recovery=recovery;}
+    }
     private static volatile DailyObservation dailyObservation;
     private static String previousDailyTrigger="";
     private static final WakeHandoff handoff=new WakeHandoff();
@@ -125,6 +153,7 @@ public final class FanHook implements IXposedHookLoadPackage {
             compatibilityDetail="需要传统 Xposed API ≥82，当前 "+XposedBridge.getXposedVersion();return;
         }
         installRpmObserver(); // Optional read-only capability; never blocks the existing policy.
+        if (yieldToKernel()) return; // No legacy bootstrap/control hooks for an eta_policy driver.
         try{
             bootstrap=FanServiceCompat.bootstrap(loader,Context.class,Handler.class);
             evidence.success("初始化入口",FanServiceCompat.methodKey(bootstrap.initialize),"已定位，等待原厂调用",SystemClock.elapsedRealtime());
@@ -153,6 +182,47 @@ public final class FanHook implements IXposedHookLoadPackage {
             });
         }catch(Throwable t){setupFailure(t);}
     }
+    private static volatile boolean kernelBackendReported;
+    private static boolean kernelNodesExist() {
+        java.io.File p = new java.io.File("/sys" + FanRpm.DEVPATH + "/eta_policy");
+        return new java.io.File(p, "status").exists() && new java.io.File(p, "config").exists()
+                && new java.io.File(p, "config_snapshot").exists();
+    }
+    private static boolean kernelPolicyPresent() {
+        if (!kernelNodesExist()) return false;
+        java.io.File status = new java.io.File("/sys" + FanRpm.DEVPATH + "/eta_policy/status");
+        if (!status.canRead()) return kernelBackendReported; // root0400: require UID0-validated Provider evidence
+        try (java.io.FileReader in = new java.io.FileReader(status)) {
+            char[] b = new char[8193]; int n = in.read(b);
+            if (n <= 0 || n == b.length) return false;
+            KernelReport.parse(new String(b, 0, n)); return true;
+        } catch (Exception ignored) { return false; }
+    }
+    private static void observeKernelBackend() {
+        if (kernelControlSelected || context == null || !kernelNodesExist()) return;
+        try {
+            Bundle b = context.getContentResolver().call(API, "kernelBackend", null, null);
+            kernelBackendReported = b != null && b.getInt("protocol", 0) == 2 && b.getBoolean("active", false);
+        } catch (RuntimeException ignored) { kernelBackendReported = false; }
+    }
+
+    private static volatile boolean kernelControlSelected;
+    private static synchronized boolean yieldToKernel() {
+        if (!kernelControlSelected && !kernelPolicyPresent()) return false;
+        if (!kernelControlSelected) {
+            kernelControlSelected = true;
+            // These handles are only our policy hooks, not stock OEM hooks or the optional FG observer.
+            for (XC_MethodHook.Unhook hook : installed) try { hook.unhook(); } catch (Throwable ignored) { }
+            installed.clear();
+            nodeInput = null; nodeReleasePending = false; active = false;
+            nodeControl.release("kernel eta_policy selected"); cancelNodeLease(); cancelContinuation();
+            compatibilityStatus = "kernel-backend";
+            compatibilityDetail = "内核通道存在；控制与遥测由 Root relay 接入，未伪称已就绪";
+            XposedBridge.log("ACEFan " + VERSION + ": eta_policy present; legacy control/sampler suppressed; optional FG hook retained");
+        }
+        return true;
+    }
+
     private static void installRpmObserver(){
         try{
             Class<?> eventType=XposedHelpers.findClass("com.oplus.wrapper.os.UEventObserver$UEvent",loader);
@@ -199,7 +269,9 @@ public final class FanHook implements IXposedHookLoadPackage {
         }));}catch(Throwable t){failure("调用关联安装",FanServiceCompat.methodKey(m),t);}
     }
     private static synchronized void installPolicyHooks(final FanServiceCompat found)throws Throwable{
+        if (yieldToKernel()) return;
         // Compute can return before apply; evidence propagates to the enclosing refresh.
+        installDirectNodeHooks(found);
         hookCycle(bootstrap.refresh);
         for(Method m:FanServiceCompat.methods(found.orchestratorObject.getClass(),void.class))
             if(Modifier.isProtected(m.getModifiers()))hookCycle(m);
@@ -215,23 +287,35 @@ public final class FanHook implements IXposedHookLoadPackage {
         Method autoTarget=found.autoTarget();
         if(autoTarget!=null)try{installed.add(XposedBridge.hookMethod(autoTarget,new XC_MethodHook(){
             @Override protected void afterHookedMethod(MethodHookParam p){
+                if (yieldToKernel()) return;
                 CandidateFrame frame=candidateFrame.get();
                 if(frame!=null&&found.ownsAutoTarget(p.thisObject)){
                     frame.autoTargetReads++;
                     if(!p.hasThrowable()&&p.getResult() instanceof Integer)frame.autoTarget=(Integer)p.getResult();
+                    applyDirectAutoTarget(found,p,frame);
                 }
             }
-        }));}catch(Throwable t){failure("日用自动目标观察安装",FanServiceCompat.methodKey(autoTarget),t);}
+        }));}catch(Throwable t){
+            nodeControl.unavailable("auto target hook: "+FanServiceCompat.summary(t));
+            failure("日用自动目标观察安装",FanServiceCompat.methodKey(autoTarget),t);
+        }
         int candidateHooks=0,controllerHooks=0;
         for(final Method candidate:found.candidates){
             try{installed.add(XposedBridge.hookMethod(candidate,new XC_MethodHook(){
                 @Override protected void beforeHookedMethod(MethodHookParam p){candidateFrame.set(new CandidateFrame(candidateFrame.get()));}
                 @Override protected void afterHookedMethod(MethodHookParam p){
                     CandidateFrame frame=candidateFrame.get();candidateFrame.set(frame==null?null:frame.parent);
+                    if (yieldToKernel()) return;
                     if(p.thisObject!=found.orchestratorObject)return;
                     String member=FanServiceCompat.methodKey(candidate);
                     if(p.hasThrowable()){failure("原厂候选调用",member,p.getThrowable());return;}
                     if(!(p.getResult() instanceof Integer))return;
+                    // Direct ownership only changes the upstream getter. Never run the legacy
+                    // candidate enhancer over the downstream OEM safety/cap result.
+                    if(nodeControl.available()){
+                        if(!nodeControl.owns()){lastOem=(Integer)p.getResult();lastCandidate=lastOem;}
+                        return;
+                    }
                     boolean ordinaryTarget=frame!=null&&DailyFanPolicy.matchesAutoTarget((Integer)p.getResult(),frame.autoTarget,
                             frame.autoTargetReads,controlCycle.inProgress());
                     if(selectedCandidate==null){
@@ -293,15 +377,80 @@ public final class FanHook implements IXposedHookLoadPackage {
             for(XC_MethodHook.Unhook u:installed)try{u.unhook();}catch(Throwable ignored){}
             installed.clear();throw new IllegalStateException("候选 Hook 均未安装；见逐环节失败记录");
         }
+        boolean directSetterHooked=false;
         for(final Method setter:found.setters){
             try{installed.add(XposedBridge.hookMethod(setter,new XC_MethodHook(){
                 @Override protected void beforeHookedMethod(MethodHookParam p){
+                    if (yieldToKernel()) return;
+                    boolean exact=setter.equals(directSetter)&&onOriginalHandler();
+                    NodeScope inherited=exact?nodeScope.get():null;
+                    boolean recovery=exact&&safetyStop.get()!=null&&inherited==null&&(Integer)p.args[0]==0;
+                    if(inherited!=null){
+                        // Reentrant native ownership is not part of the one authorized recovery
+                        // invocation. Suspend the old ThreadLocal as well as invalidating its ticket.
+                        inherited.superseded=true;
+                        p.setObjectExtra("acefan.suspendedNodeScope",inherited);nodeScope.remove();
+                        nodeControl.release("reentrant OEM request owns handoff");cancelNodeLease();nodeReleasePending=false;
+                    }
+                    if(exact&&nodeControl.owns()
+                            &&(Integer)p.args[0]>0&&!recovery){
+                        DirectFanControl.Status status=nodeControl.status();
+                        String why=directGate(found,status.mode);
+                        if(why!=null||!nodeControl.fresh(SystemClock.elapsedRealtime()))
+                            releaseDirect(why==null?"target stale at setter":why);
+                    }
+                    if(exact&&!recovery&&!nodeControl.owns()){
+                        // Any later native request is an ownership handoff, even if a recovery
+                        // task is already queued. Its generation invalidates that old task.
+                        nodeControl.release("OEM native request owns handoff: "+p.args[0]);
+                        cancelNodeLease();
+                        if((Integer)p.args[0]>0)nodeReleasePending=false;
+                    }
+                    if(exact&&(nodeControl.owns()||recovery||(nodeReleasePending&&(Integer)p.args[0]<=0))){
+                        NodeScope scope=new NodeScope(nodeScope.get(),(Integer)p.args[0]<=0,recovery);nodeScope.set(scope);
+                        p.setObjectExtra("acefan.nodeScope",scope);
+                        try{
+                            // OEM may cache the same requested level while the physical enable
+                            // state differs. Re-evaluate its setter, not its safety orchestrator.
+                            Integer current=found.level(p.thisObject);
+                            if(found.updated!=null&&(recovery||(current!=null&&current.equals(p.args[0])
+                                    &&nodeControl.mustApply((Integer)p.args[0]))))found.updated.setBoolean(p.thisObject,false);
+                        }catch(Throwable t){nodeEndpointFailure(scope,t);}
+                    }
                     AppliedDecision d=controlCycle.take();
                     if(d!=null&&SystemClock.elapsedRealtime()-d.at<2000L)p.setObjectExtra("acefan.decision",d);
                     lastRequest=(Integer)p.args[0];
                 }
                 @Override protected void afterHookedMethod(MethodHookParam p){
                     AppliedDecision d=(AppliedDecision)p.getObjectExtra("acefan.decision");
+                    NodeScope scope=(NodeScope)p.getObjectExtra("acefan.nodeScope");
+                    NodeScope suspended=(NodeScope)p.getObjectExtra("acefan.suspendedNodeScope");
+                    if(suspended!=null)nodeScope.set(suspended);
+                    if(scope!=null){
+                        nodeScope.set(scope.parent);nodeReleasePending=false;
+                        if(scope.superseded)return;
+                        int request=(Integer)p.args[0];
+                        try{if(Telemetry.fanRpmRequest(request))sampleSoon();}catch(Throwable ignored){}
+                        if(scope.recovery){
+                            StopAttempt attempt=safetyStop.get();
+                            if(attempt!=null){
+                                attempt.confirmedOff=scope.stopConfirmed;
+                                attempt.completed=!p.hasThrowable()&&!scope.failed;
+                                if(p.hasThrowable())attempt.detail=FanServiceCompat.summary(p.getThrowable());
+                                else if(!nodeControl.stopError().isEmpty())attempt.detail=nodeControl.stopError();
+                                else if(attempt.completed&&scope.stopConfirmed)attempt.detail="";
+                            }
+                            return; // outer ticket finalization, not ordinary request success/reporting
+                        }
+                        nodeControl.requested(request,!p.hasThrowable()&&!scope.failed);
+                        if(nodeControl.lease()==null)cancelNodeLease();
+                        DirectFanControl.Status status=nodeControl.status();
+                        active=status.active;phase=status.controlling?"direct-"+status.mode:"oem";
+                        decisionReason=status.reason+(status.error.isEmpty()?"":"；"+status.error);
+                        if(p.hasThrowable())failure("原厂直控调用",FanServiceCompat.methodKey(setter),p.getThrowable());
+                        if(!scope.recovery&&(!status.error.isEmpty()||scope.failed||p.hasThrowable()))queueDirectSafetyStop(found);
+                        sampleSoon();return;
+                    }
                     if(p.hasThrowable()){failure("原厂控制调用",FanServiceCompat.methodKey(setter),p.getThrowable());return;}
                     if(Telemetry.fanRpmRequest((Integer)p.args[0]))sampleSoon();
                     if(((Integer)p.args[0])<=0){
@@ -326,8 +475,14 @@ public final class FanHook implements IXposedHookLoadPackage {
                         }sampleSoon();
                     }catch(Throwable t){failure("控制反馈读取",FanServiceCompat.methodKey(setter),t);}
                 }
-            }));controllerHooks++;}catch(Throwable t){failure("控制观察安装",FanServiceCompat.methodKey(setter),t);}
+            }));controllerHooks++;if(setter.equals(directSetter))directSetterHooked=true;
+            }catch(Throwable t){failure("控制观察安装",FanServiceCompat.methodKey(setter),t);}
         }
+        if(directSetter!=null&&directSetterHooked)try{
+            if(!nodeControl.initialize(found.readMaximum()))evidence.unavailable("节点直控",nodeControl.error());
+            else evidence.success("节点直控","OplusFanController$b.n/l（fan-only）","节点只读核验通过；transport="+nodeControl.status().transport+"；原厂节点通道不等于 system_app 直接写权限；实际写回读待验证；不依赖 horae 更新",SystemClock.elapsedRealtime());
+        }catch(Throwable t){nodeControl.unavailable(FanServiceCompat.summary(t));}
+        else nodeControl.unavailable("precise fan setter hook unavailable");
         evidence.success("Hook安装","候选="+candidateHooks+"；控制观察="+controllerHooks,"等待真实调用",SystemClock.elapsedRealtime());
         try{evidence.success("档位上限读取","ConfigParser","实际值="+found.readMaximum(),SystemClock.elapsedRealtime());}
         catch(Throwable t){failure("档位上限读取","ConfigParser",t);}
@@ -338,6 +493,258 @@ public final class FanHook implements IXposedHookLoadPackage {
         if(found.updated==null||found.currentLevel==null)evidence.unavailable("控制确认",found.confirmationDescription());
         if(found.setters.isEmpty())evidence.unavailable("控制观察","无控制请求入口，候选仍可运行；后续反馈未知");
     }
+    /** Exact, fan-local endpoint hooks. No hook is installed on controller.g or misc HAL. */
+    private static void installDirectNodeHooks(final FanServiceCompat found){
+        java.util.List<XC_MethodHook.Unhook> local=new java.util.ArrayList<XC_MethodHook.Unhook>();
+        try{
+            if(found.controller==null||found.updated==null||found.currentLevel==null||found.autoTarget()==null)
+                throw new NoSuchMethodException("fan controller/confirmation/auto target unavailable");
+            Class<?> controller=found.controller.getClass();
+            if(!"com.oplus.exsystemservice.fan.controller.OplusFanController".equals(controller.getName()))
+                throw new NoSuchMethodException("unverified controller identity");
+            Class<?> writer=Class.forName(controller.getName()+"$b",false,loader);
+            final DirectFanControl.Endpoints exact=DirectFanControl.endpoints(controller,writer);
+            if(!found.setters.contains(exact.setter))throw new NoSuchMethodException("precise fan setter not observed");
+            local.add(XposedBridge.hookMethod(exact.level,new XC_MethodHook(){
+                @Override protected void beforeHookedMethod(MethodHookParam p){
+                    if (yieldToKernel()) return;
+                    NodeScope scope=nodeScope.get();if(scope==null||!onOriginalHandler())return;
+                    if(scope.superseded){p.setResult(false);return;}
+                    boolean ok=false;
+                    try{ok=!scope.stop&&!scope.failed&&nodeControl.level((Integer)p.args[0]);}
+                    catch(Throwable t){nodeEndpointFailure(scope,t);}
+                    if(!ok)scope.failed=true;
+                    p.setResult(ok); // consume the selected transport attempt, including failure; never try a second route
+                }
+            }));
+            local.add(XposedBridge.hookMethod(exact.state,new XC_MethodHook(){
+                @Override protected void beforeHookedMethod(MethodHookParam p){
+                    if (yieldToKernel()) return;
+                    NodeScope scope=nodeScope.get();if(scope==null||!onOriginalHandler())return;
+                    if(scope.superseded){p.setResult(null);return;}
+                    boolean on=(Boolean)p.args[0];
+                    boolean ok=false;
+                    try{
+                        ok=(!on||!scope.failed)&&nodeControl.state(on);
+                        if(!on)scope.stopConfirmed=nodeControl.stopConfirmed();
+                    }catch(Throwable t){nodeEndpointFailure(scope,t);}
+                    if(!ok)scope.failed=true;
+                    p.setResult(null);
+                }
+            }));
+            local.add(XposedBridge.hookMethod(exact.readState,new XC_MethodHook(){
+                @Override protected void beforeHookedMethod(MethodHookParam p){
+                    if (yieldToKernel()) return;
+                    NodeScope scope=nodeScope.get();if(scope==null||!onOriginalHandler())return;
+                    if(scope.superseded){p.setResult("0");return;}
+                    // Safety-only stop must reach the original disable/notification/audio path.
+                    String state=scope.stop?"1":"0";
+                    try{if(!scope.stop)state=nodeControl.stateForSetter();}
+                    catch(Throwable t){nodeEndpointFailure(scope,t);}
+                    p.setResult(state);
+                }
+            }));
+            nodeAccess.bindBridge(DirectFanControl.nodeBridge(exact,new DirectFanControl.OriginalCall(){
+                @Override public Object invoke(Method method,Object[] arguments)throws Throwable{
+                    if(!onOriginalHandler())throw new IllegalStateException("fan bridge outside OEM handler");
+                    // Bypass only our exact fan n/l hooks. Do not hook g or any misc HAL method.
+                    return XposedBridge.invokeOriginalMethod(method,null,arguments);
+                }
+            }));
+            installed.addAll(local);directSetter=exact.setter;
+        }catch(Throwable t){
+            for(XC_MethodHook.Unhook hook:local)try{hook.unhook();}catch(Throwable ignored){}
+            directSetter=null;nodeControl.unavailable(FanServiceCompat.summary(t));
+            evidence.unavailable("节点直控",nodeControl.error());
+        }
+    }
+
+    private static boolean onOriginalHandler(){
+        Handler h=originalHandler;return h!=null&&android.os.Looper.myLooper()==h.getLooper();
+    }
+
+    /** Live owner/mode/scene checks supplement, never replace, downstream OEM safety. */
+    private static String directGate(FanServiceCompat found,String mode){
+        try{
+            long now=SystemClock.elapsedRealtime();
+            NodeInput input=nodeInput;
+            if(!compatible||input==null||input.at<0||now<input.at||now-input.at>=DirectFanControl.FRESH_MS)return "telemetry unavailable/stale";
+            if(!input.allowed||!mode.equals(input.mode))return "software policy disabled/changed/protected";
+            if(!Boolean.TRUE.equals(found.readAutomatic())||!dailyOwnerAllows())return "OEM owner/manual/protection gate";
+            Integer event=found.event();
+            // An initial Java event=0 is not health evidence: the independent, live node probe
+            // must say NORMAL too. Explicit faults/unknown event values are never accepted.
+            if(event==null||event<0||event>2)return "OEM fan fault/unknown event";
+            String scene=found.readStrategy();
+            if("charge".equals(mode)){
+                if(powerDisconnected||eventChargeBlocked||!enabled||now-input.configAt>=DirectFanControl.FRESH_MS)return "charge policy unavailable/stale";
+                Integer charge=readSetting("cooling_fan_charge_switch");
+                if(charge==null||charge!=1)return "OEM charge fan switch disabled/unknown";
+                if(!FanServiceCompat.allowedScene(scene))return "OEM interrupt scene: "+scene;
+            }else if("daily".equals(mode)){
+                DailyFanPolicy.Frame day=daily.current(now);
+                if(day==null||day!=input.day||!day.hasTarget()||!day.thermalClear
+                        ||dailyThermalStatus()!=PowerManager.THERMAL_STATUS_NONE)return "daily policy/thermal protection";
+                if(!DailyFanPolicy.allowedScene(scene))return "OEM interrupt scene: "+scene;
+            }else return "no software policy";
+            return null;
+        }catch(Throwable t){failure("节点直控门控","owner/mode/scene",t);return "live OEM gate read failed";}
+    }
+
+    private static void releaseDirect(String reason){
+        boolean owned=nodeControl.owns();
+        if(!owned&&nodeControl.stopPending())return; // do not cancel an already queued safety handoff
+        nodeReleasePending|=owned;
+        nodeControl.release(reason);cancelNodeLease();
+        // Usually the same synchronous OEM cycle makes its own request first and cancels
+        // this ticket. If an upstream exception prevents that request, still disable once.
+        if(owned&&bindings!=null){
+            DirectFanControl.SafetyStop ticket=nodeControl.queueSafetyStop(reason);
+            if(ticket!=null)queueDirectSafetyStop(bindings,ticket);
+        }
+    }
+
+    private static void nodeEndpointFailure(NodeScope scope,Throwable error){
+        scope.failed=true;
+        StopAttempt attempt=safetyStop.get();
+        if(attempt!=null)attempt.detail=FanServiceCompat.summary(error);
+        else nodeControl.unavailable(FanServiceCompat.summary(error));
+    }
+
+    private static void cancelNodeLease(){
+        Handler handler=originalHandler;
+        if(handler!=null&&nodeLeaseTask!=null)handler.removeCallbacks(nodeLeaseTask);
+        nodeLeaseTask=null;
+    }
+
+    /** OEM-handler watchdog: no sampler, Provider IPC, or worker continuation is required. */
+    private static void armNodeLease(final FanServiceCompat found){
+        cancelNodeLease();
+        final Handler handler=originalHandler;
+        final DirectFanControl.Lease lease=nodeControl.lease();
+        if(handler==null||lease==null)return;
+        final Runnable expiry=new Runnable(){@Override public void run(){
+            if(nodeLeaseTask!=this||!nodeControl.leaseMatches(lease))return;
+            long now=SystemClock.elapsedRealtime();
+            if(now<lease.deadline){handler.postDelayed(this,lease.deadline-now);return;}
+            nodeLeaseTask=null;
+            DirectFanControl.SafetyStop ticket=nodeControl.expireLease(lease,now);
+            if(ticket!=null){
+                nodeReleasePending=false;
+                queueDirectSafetyStop(found,ticket);
+            }
+        }};
+        nodeLeaseTask=expiry;
+        if(!handler.postDelayed(expiry,Math.max(0L,lease.deadline-SystemClock.elapsedRealtime()))){
+            nodeLeaseTask=null;
+            DirectFanControl.SafetyStop ticket=nodeControl.queueSafetyStop("OEM handler rejected sample lease timer");
+            if(ticket!=null)runDirectSafetyStop(found,ticket); // already on the same OEM handler
+        }
+    }
+
+    private static boolean prepareDirectTarget(){
+        if (yieldToKernel()) return false;
+        if(!onOriginalHandler()||!nodeControl.available())return true;
+        lastDirectRefreshAt=SystemClock.elapsedRealtime();
+        FanServiceCompat found=bindings;if(found==null)return true;
+        NodeInput input=nodeInput;
+        String mode=input==null?"oem":input.mode;
+        String why=directGate(found,mode);
+        if(why!=null){releaseDirect(why);return true;}
+        if(nodeInput!=input){requestRefresh();return false;}
+        boolean previouslyOwned=nodeControl.owns();
+        if(nodeControl.prepare(mode,input.demand,lastDirectRefreshAt,input.at)){
+            nodeReleasePending=false;armNodeLease(found);return true;
+        }
+        if(previouslyOwned&&!nodeControl.error().isEmpty()){
+            // Do not feed a failed direct decision into legacy enhancement in this same cycle.
+            // The original setter executes the safety-only disable first, including its side effects.
+            queueDirectSafetyStop(found);return false;
+        }
+        return true;
+    }
+
+    private static void applyDirectAutoTarget(FanServiceCompat found,XC_MethodHook.MethodHookParam p,CandidateFrame frame){
+        if (yieldToKernel()) return;
+        if(!nodeControl.available()||!onOriginalHandler()||frame==null||!controlCycle.inProgress())return;
+        if(p.hasThrowable()||!(p.getResult() instanceof Integer)||(Integer)p.getResult()<0){
+            releaseDirect("natural OEM upstream error; original result retained");return;
+        }
+        DirectFanControl.Status status=nodeControl.status();
+        String why=directGate(found,status.mode);
+        if(why!=null){releaseDirect(why);return;}
+        int output=nodeControl.target(SystemClock.elapsedRealtime());
+        if(output<0){releaseDirect("software target stale/unavailable");return;}
+        lastOem=(Integer)p.getResult();lastCandidate=output;
+        p.setResult(output); // zero is intentional; no max(old, software) in direct mode
+        active=status.active;phase="direct-"+status.mode;decisionReason=status.reason;
+    }
+
+    private static void queueDirectSafetyStop(final FanServiceCompat found){
+        DirectFanControl.SafetyStop ticket=nodeControl.queueSafetyStop("direct I/O error");
+        if(ticket!=null){cancelNodeLease();nodeReleasePending=false;queueDirectSafetyStop(found,ticket);}
+    }
+
+    private static void queueDirectSafetyStop(final FanServiceCompat found,final DirectFanControl.SafetyStop ticket){
+        Handler handler=originalHandler;
+        if(handler==null||directSetter==null){
+            if(nodeControl.beginSafetyStop(ticket))nodeControl.finishSafetyStop(ticket,false,"precise OEM setter/handler unavailable");
+            return;
+        }
+        if(!handler.post(new Runnable(){@Override public void run(){runDirectSafetyStop(found,ticket);}})){
+            if(onOriginalHandler())runDirectSafetyStop(found,ticket);
+            else if(nodeControl.beginSafetyStop(ticket))nodeControl.finishSafetyStop(ticket,false,"OEM handler rejected stop task");
+        }
+    }
+
+    private static void runDirectSafetyStop(FanServiceCompat found,DirectFanControl.SafetyStop ticket){
+        if (yieldToKernel()) return;
+        if(!onOriginalHandler()||!nodeControl.beginSafetyStop(ticket))return; // superseded/duplicate tasks do nothing
+        final StopAttempt attempt=new StopAttempt(ticket);
+        try{
+            // A mode switch may precede the OEM setter callback. Do not let an old queued
+            // recovery stop take a fan which has already been handed back to manual control.
+            Boolean automatic=null;
+            try{automatic=found.readAutomatic();}catch(Throwable ignored){/* the valid ownership ticket still authorizes a safety-only stop */}
+            if(Boolean.FALSE.equals(automatic)){
+                nodeControl.release("manual ownership observed; obsolete safety stop cancelled");
+                cancelNodeLease();nodeReleasePending=false;sampleSoon();return;
+            }
+            safetyStop.set(attempt);
+            directSetter.invoke(found.controller,0); // original audio/notification/observer side effects stay intact
+        }catch(Throwable t){
+            attempt.detail=FanServiceCompat.summary(t);
+            failure("节点直控安全停机","OplusFanController.i(0)",t);
+        }finally{
+            safetyStop.remove();
+            String detail=attempt.detail;
+            if(attempt.confirmedOff&&!attempt.completed&&detail.isEmpty())detail="state=0 readback confirmed; OEM setter side effects incomplete";
+            // This also guards finalization against a reentrant newer owner. Never label an
+            // unconfirmed disable as stopped, and never release/cancel a later generation.
+            if(nodeControl.finishSafetyStop(ticket,attempt.confirmedOff,detail)){
+                DirectFanControl.Status status=nodeControl.status();active=false;phase="oem";decisionReason=status.reason;
+                sampleSoon();
+            }
+        }
+    }
+
+    private static JSONObject nodeTelemetry(DirectFanControl.Status status)throws org.json.JSONException{
+        JSONObject out=new JSONObject();
+        out.put("active",status.active);out.put("backend",status.backend);out.put("available",status.available);
+        out.put("controlling",status.controlling);out.put("mode",status.mode);out.put("transport",status.transport);
+        out.put("target",status.target<0?JSONObject.NULL:status.target);out.put("output",status.output<0?JSONObject.NULL:status.output);
+        out.put("request",lastRequest<0?JSONObject.NULL:lastRequest);
+        out.put("lastDirectRequest",status.request<0?JSONObject.NULL:status.request);
+        out.put("state",status.state<0?JSONObject.NULL:status.state);out.put("level",status.level<0?JSONObject.NULL:status.level);
+        out.put("effective",status.effective<0?JSONObject.NULL:status.effective);
+        out.put("error",status.error);out.put("reason",status.reason);out.put("writes",status.writes);
+        out.put("ramp","OEM normal: up=0.2/down=0.1 level/s; integer seconds; 5s tick");
+        out.put("horaeRequired",false);
+        out.put("generation",status.generation);out.put("leaseDeadlineElapsed",status.leaseDeadline<0?JSONObject.NULL:status.leaseDeadline);
+        out.put("safetyStop",status.safetyStop);out.put("safetyStopError",status.safetyStopError);
+        return out;
+    }
+
     private static void setupFailure(Throwable t){
         compatibilityStatus="setup-failed";compatibilityDetail=FanServiceCompat.summary(t);
         String stage=FanServiceCompat.stageOf(t);if(stage.isEmpty())stage="接口接入";
@@ -355,6 +762,8 @@ public final class FanHook implements IXposedHookLoadPackage {
     private static void startWorker(Context c) throws Throwable {
         if(!started.compareAndSet(false,true))return;
         context=c.getApplicationContext()==null?c:c.getApplicationContext();
+        observeKernelBackend();
+        if (yieldToKernel()) return; // root relay publishes; this process must not temperature-poll/compute
         final Handler h=new Handler(android.os.Looper.getMainLooper());
         try{targetVersion=context.getPackageManager().getPackageInfo(TARGET,0).versionName;}catch(Throwable ignored){}
         HandlerThread thread=new HandlerThread("ACEFan-Telemetry");thread.start();worker=new Handler(thread.getLooper());
@@ -439,6 +848,8 @@ public final class FanHook implements IXposedHookLoadPackage {
     }
 
     private static final Runnable tick=new Runnable(){@Override public void run(){
+        observeKernelBackend();
+        if (yieldToKernel()) return;
         long next=Sampling.ACTIVE_MS;
         try{
             long dayEpoch=daily.epoch();
@@ -455,17 +866,26 @@ public final class FanHook implements IXposedHookLoadPackage {
             evidence.success("运行条件","供电/温度/开关",hardReason,SystemClock.elapsedRealtime());
             Gate gate=evaluateGate();
             double fused=FusionTemp.fuse(new double[]{s.optDouble("battery",Double.NaN),s.optDouble("mos",Double.NaN),s.optDouble("board",Double.NaN),s.optDouble("fan",Double.NaN)});
-            chargeCurve.update(fused,SystemClock.elapsedRealtime(),gate.allowed());
+            chargeCurve.update(fused,SystemClock.elapsedRealtime(),nodeControl.available()?"允许".equals(hardReason):gate.allowed());
             String trigger=hardReason+"|"+gate.mode+"|"+configVersion+"|"+chargeCurve.level()+"|"+compatibilityStatus;
             if(!trigger.equals(previousTrigger)){previousTrigger=trigger;requestRefresh();}
             if(!gate.allowed()){active=false;decisionReason=gate.reason;}
             DailyFanPolicy.Frame day=sampleDaily(s,power,dayEpoch);
+            // Publish only immutable policy inputs across threads. Ramp and node I/O remain
+            // on the OEM handler; do not share the sampler's mutable JSONObject with them.
+            boolean directCharge=chargePowerAvailable();
+            String nodeMode=directCharge?"charge":dailyPowerAvailable()?"daily":"oem";
+            nodeInput=new NodeInput(nodeMode,directCharge?chargeCurve.level():day==null?0:day.demand,
+                    s.optLong("elapsed",-1L),lastConfigAt,directCharge?"允许".equals(hardReason):day!=null&&day.hasTarget()&&day.thermalClear,day);
             boolean dayEnabled=day!=null&&day.config!=null&&day.config.enabled;
             String dayTrigger=dayEnabled?day.epoch+"|"+day.version+"|"+day.demand+"|"+day.state+"|"+day.fusion.contributorMask+"|"+day.thermalClear:"";
             if(!dayTrigger.equals(previousDailyTrigger)){previousDailyTrigger=dayTrigger;requestRefresh();}
+            if(nodeControl.available()&&(lastDirectPollAt<0||sampleAt-lastDirectPollAt>=DirectFanControl.PERIOD_MS)){
+                lastDirectPollAt=sampleAt;requestRefresh();
+            }
             long tier=Sampling.interval(gate.allowed(),"允许".equals(hardReason));
             boolean fanRunning=s.optInt("state",-1)==1&&s.optInt("effective",-1)>0;
-            if(dayEnabled||fanRunning)tier=Math.min(tier,Sampling.ACTIVE_MS);
+            if(dayEnabled||fanRunning||(nodeControl.available()&&enabled))tier=Math.min(tier,DirectFanControl.PERIOD_MS);
             sampleIntervalMs=tier;next=tier;
             long remaining=handoff.remaining(SystemClock.elapsedRealtime());
             if(remaining>0)next=Math.min(next,remaining+50L);
@@ -503,8 +923,26 @@ public final class FanHook implements IXposedHookLoadPackage {
             boolean dayCurrent=dailyPowerAvailable()&&day!=null&&day==daily.current(SystemClock.elapsedRealtime());
             s.put("controlMode",chargePowerAvailable()?"charge":dayCurrent?"daily":"oem");
             if(dayCurrent)s.put("daily",dailyTelemetry(day));
+            // Append-only extension: retain the established report keys and their order.
+            DirectFanControl.Status node=nodeControl.status();
+            s.put("nodeControl",nodeTelemetry(node));
+            if(node.available){
+                s.put("active",node.active);s.put("phase",node.controlling?"direct-"+node.mode:"oem");
+                s.put("reason",node.reason);s.put("controlMode",node.controlling?node.mode:"oem");
+                if(node.controlling){
+                    s.put("candidate",node.output<0?JSONObject.NULL:node.output);
+                    s.put("request",node.request<0?JSONObject.NULL:node.request);
+                }
+                s.put("runtimeProgress",node.active?"节点请求回读确认（非实测RPM）":node.controlling?"软件目标已应用，等待原厂下游":"原厂优先："+node.reason);
+                if(dayCurrent){
+                    JSONObject dayJson=s.optJSONObject("daily");
+                    if(dayJson!=null){dayJson.put("state",node.active&&"daily".equals(node.mode)?"node_control_confirmed":node.controlling&&"daily".equals(node.mode)?"node_control_pending":"oem_blocked");
+                        int dayCandidate=node.controlling?node.output:lastCandidate;
+                        dayJson.put("candidate",dayCandidate<0?JSONObject.NULL:dayCandidate);dayJson.put("request",lastRequest<0?JSONObject.NULL:lastRequest);}
+                }
+            }
             double[] temps={s.optDouble("battery",Double.NaN),s.optDouble("board",Double.NaN),s.optDouble("fan",Double.NaN),s.optDouble("mos",Double.NaN)};
-            String key=evidence.activeFailures()+"|"+evidence.lastFailureResolved()+"|"+evidence.counters()+"|"+evidence.lastStage()+"|"+evidence.lastError()+"|"+trigger+"|"+active+"|"+decisionReason+"|"+s.optString("fanStatus","")+"|"+s.optInt("effective",-1)+"|"+s.optInt("driver",-1)+"|"+s.optBoolean("interactive",false)+"|"+s.optString("controlMode","")+"|"+dailyPushKey(dayCurrent?day:null)+"|"+s.optJSONObject("fanRpm");
+            String key=evidence.activeFailures()+"|"+evidence.lastFailureResolved()+"|"+evidence.counters()+"|"+evidence.lastStage()+"|"+evidence.lastError()+"|"+trigger+"|"+active+"|"+decisionReason+"|"+s.optString("fanStatus","")+"|"+s.optInt("effective",-1)+"|"+s.optInt("driver",-1)+"|"+s.optBoolean("interactive",false)+"|"+s.optString("controlMode","")+"|"+dailyPushKey(dayCurrent?day:null)+"|"+s.optJSONObject("fanRpm")+"|"+s.optJSONObject("nodeControl");
             long nowElapsed=SystemClock.elapsedRealtime();
             if(Sampling.shouldPush(!pushedOnce,!key.equals(lastPushKey),nowElapsed-lastPushAt,
                     Sampling.maxDelta(temps,lastPushTemps),(dayEnabled&&dayCurrent)||fanRunning)){
@@ -521,7 +959,8 @@ public final class FanHook implements IXposedHookLoadPackage {
                 }
             }
         }catch(Throwable t){
-            if(daily.invalidate())requestRefresh();
+            nodeInput=null;
+            if(daily.invalidate()||nodeControl.available())requestRefresh();
             failure("遥测采样","Telemetry/config/push",t);active=false;cancelContinuation();next=Sampling.IDLE_MS;sampleIntervalMs=next;
         }
         finally{if(worker!=null){worker.removeCallbacks(this);worker.postDelayed(this,next);}}
@@ -728,9 +1167,11 @@ public final class FanHook implements IXposedHookLoadPackage {
     }
     private static void sampleSoon(){Handler w=worker;if(w!=null){w.removeCallbacks(tick);w.post(tick);}}
     private static void requestRefresh(){
+        if (yieldToKernel()) return;
         final Handler h=originalHandler;if(h==null||aeolus==null||!queued.compareAndSet(false,true))return;
         h.post(new Runnable(){@Override public void run(){queued.set(false);try{
-            if(bootstrap!=null){bootstrap.refresh.invoke(aeolus,"ACE7 Charging Policy");evidence.success("原厂重算",FanServiceCompat.methodKey(bootstrap.refresh),"调用完成；增强="+active,SystemClock.elapsedRealtime());}
+            if(!prepareDirectTarget())return;
+            if(bootstrap!=null){bootstrap.refresh.invoke(aeolus,"ACE7 Fan Policy");evidence.success("原厂重算",FanServiceCompat.methodKey(bootstrap.refresh),"调用完成；增强="+active,SystemClock.elapsedRealtime());}
         }catch(Throwable t){failure("原厂重算",bootstrap==null?"未定位":FanServiceCompat.methodKey(bootstrap.refresh),t);}}});
     }
     private static Bundle api(String method,Bundle b){

@@ -25,6 +25,8 @@ import org.json.JSONTokener;
 public final class DataProvider extends ContentProvider {
     public static final String AUTHORITY = "dev.eta.acefan.data";
     public static final Uri CONTENT_URI = Uri.parse("content://" + AUTHORITY + "/samples");
+    // Separate from samples: root settings never reread config in response to telemetry pushes.
+    public static final Uri CONFIG_URI = Uri.parse("content://" + AUTHORITY + "/config");
     public static final Uri DAILY_CONFIG_URI = Uri.parse("content://" + AUTHORITY + "/" + DailyFanContract.PATH);
     private static final String DB_NAME = "acefan-telemetry.db";
     private static final int DB_VERSION = 3;
@@ -38,7 +40,8 @@ public final class DataProvider extends ContentProvider {
     private static final String[] COLUMNS = {"id", "wall", "elapsed", "json"};
     private Helper helper;
     private final Object pushLock = new Object();
-    private long lastPushElapsed;
+    private long lastPushElapsed, lastRootPushElapsed;
+    private volatile long rootPublisherAt; // elapsedRealtime, granted only after a UID0 pushRoot commit
 
     private static final UriMatcher MATCHER = new UriMatcher(UriMatcher.NO_MATCH);
     static { MATCHER.addURI(AUTHORITY, "samples", MATCH_SAMPLES); }
@@ -180,36 +183,76 @@ public final class DataProvider extends ContentProvider {
             boolean enabled = false; long version = 0; double start = ChargeCurve.DEFAULT_START;
             try { if (c.moveToFirst()) { enabled = c.getInt(0) != 0; version = c.getLong(1); start = c.getDouble(2); } } finally { c.close(); }
             Bundle out = new Bundle(); out.putBoolean("enabled", enabled); out.putLong("version", version); out.putString("policy", "battery");
-            out.putDouble("startTemp", start); return out;
+            out.putDouble("startTemp", start);
+            // These are the real existing charge-policy parameters, not relay defaults. No saved
+            // setting/schema changes: expose them so the kernel receives the same charge inputs.
+            out.putInt("minLevel", ChargeCurve.DEFAULT_FLOOR);
+            out.putDouble("gain", ChargeCurve.DEFAULT_GAIN);
+            out.putInt("ceiling", ChargeCurve.DEFAULT_CEILING);
+            // FusionTemp's legacy order is battery/MOS/board/fan; wire order is Provider order.
+            out.putDouble("batteryWeight", FusionTemp.WEIGHTS[0]);
+            out.putDouble("boardWeight", FusionTemp.WEIGHTS[2]);
+            out.putDouble("fanWeight", FusionTemp.WEIGHTS[3]);
+            out.putDouble("mosWeight", FusionTemp.WEIGHTS[1]);
+            return out;
+        }
+        if ("kernelBackend".equals(method)) {
+            requireRead();
+            Bundle out = new Bundle();
+            // UID0 pushRoot and exact native status validation are prerequisites, never UID1000.
+            out.putBoolean("active", KernelProtocol.publisherFresh(rootPublisherAt, android.os.SystemClock.elapsedRealtime()));
+            out.putInt("protocol", 2); return out;
         }
         if ("latest".equals(method)) {
             requireRead(); Bundle out = new Bundle();
-            Cursor c = db().rawQuery("SELECT json FROM sample ORDER BY wall DESC,id DESC LIMIT 1", null);
+            Cursor c = db().rawQuery(KernelProtocol.publisherFresh(rootPublisherAt, android.os.SystemClock.elapsedRealtime())
+                    ? "SELECT json FROM sample ORDER BY id DESC LIMIT 1"
+                    : "SELECT json FROM sample ORDER BY wall DESC,id DESC LIMIT 1", null);
             try { out.putString("json", c.moveToFirst() ? c.getString(0) : "{\"hook\":\"等待注入\"}"); } finally { c.close(); }
             return out;
         }
-        if ("push".equals(method)) {
-            requireTelemetryWrite();
-            String json = extras == null ? arg : extras.getString("json", arg);
-            if (json == null) throw new IllegalArgumentException("Missing telemetry JSON");
-            JSONObject obj = validJson(json);
-            long wall = obj.optLong("wall", System.currentTimeMillis());
-            long elapsed = obj.optLong("elapsed", android.os.SystemClock.elapsedRealtime());
+        if ("push".equals(method) || "pushRoot".equals(method)) {
+            final boolean root = "pushRoot".equals(method);
+            if (root) {
+                // UID1000 is an allowed legacy telemetry author, NOT a root publisher.
+                if (!KernelProtocol.rootPublisher(caller())) throw new SecurityException("pushRoot requires UID 0");
+            } else requireTelemetryWrite();
             synchronized (pushLock) {
                 long now = android.os.SystemClock.elapsedRealtime();
-                if (lastPushElapsed != 0 && now - lastPushElapsed < PUSH_INTERVAL_MS) throw new IllegalStateException("Push rate limited");
+                if (!root && KernelProtocol.publisherFresh(rootPublisherAt, now)) {
+                    Bundle out = new Bundle(); out.putBoolean("ok", true);
+                    out.putBoolean("dropped_by_kernel_backend", true); return out;
+                }
+                String json = extras == null ? arg : extras.getString("json", arg);
+                if (json == null) throw new IllegalArgumentException("Missing telemetry JSON");
+                JSONObject obj = validJson(json);
+                JSONObject node = obj.optJSONObject("nodeControl");
+                boolean kernel = KernelProtocol.BACKEND.equals(obj.optString("backend"))
+                        && KernelProtocol.LABEL.equals(obj.optString("hook")) && node != null
+                        && node.optInt("protocol", -1) == 2 && KernelProtocol.BACKEND.equals(node.optString("backend"));
+                if (root && !kernel) throw new IllegalArgumentException("pushRoot requires kernel status schema");
+                if (root) KernelReport.parse(node.optString("statusLine", ""));
+                if (!root && (KernelProtocol.BACKEND.equals(obj.optString("backend"))
+                        || KernelProtocol.LABEL.equals(obj.optString("hook")) || (node != null
+                        && KernelProtocol.BACKEND.equals(node.optString("backend")))))
+                    throw new SecurityException("kernel telemetry must use UID0 pushRoot");
+                long last = root ? lastRootPushElapsed : lastPushElapsed;
+                if (last != 0 && now >= last && now - last < PUSH_INTERVAL_MS) throw new IllegalStateException("Push rate limited");
+                long wall = obj.optLong("wall", System.currentTimeMillis());
+                long elapsed = obj.optLong("elapsed", now);
+                ContentValues v = new ContentValues(); v.put("wall", wall); v.put("elapsed", elapsed); v.put("json", obj.toString());
+                SQLiteDatabase d = db(); d.beginTransaction();
+                try {
+                    d.insertOrThrow("sample", null, v);
+                    d.delete("sample", "wall < ?", new String[]{Long.toString(System.currentTimeMillis() - RETENTION_MS)});
+                    d.execSQL("DELETE FROM sample WHERE id <= (SELECT MAX(id) FROM sample) - ?", new Object[]{MAX_SAMPLES});
+                    d.setTransactionSuccessful();
+                } finally { d.endTransaction(); }
+                // Serialize validation, source arbitration and insertion. A legacy writer already
+                // in flight cannot commit after a fresh root record and become latest.
                 lastPushElapsed = now;
+                if (root) { lastRootPushElapsed = now; rootPublisherAt = now; }
             }
-            ContentValues v = new ContentValues(); v.put("wall", wall); v.put("elapsed", elapsed); v.put("json", obj.toString());
-            SQLiteDatabase d = db(); d.beginTransaction();
-            try {
-                d.insertOrThrow("sample", null, v);
-                d.delete("sample", "wall < ?", new String[]{Long.toString(System.currentTimeMillis() - RETENTION_MS)});
-                // Primary-key trim: id is a monotonic rowid, so this drops exactly the oldest rows
-                // without the full-table NOT IN scan the previous statement performed every push.
-                d.execSQL("DELETE FROM sample WHERE id <= (SELECT MAX(id) FROM sample) - ?", new Object[]{MAX_SAMPLES});
-                d.setTransactionSuccessful();
-            } finally { d.endTransaction(); }
             getContext().getContentResolver().notifyChange(CONTENT_URI, null);
             Bundle out = new Bundle(); out.putBoolean("ok", true); return out;
         }
@@ -226,6 +269,7 @@ public final class DataProvider extends ContentProvider {
                 db().execSQL("UPDATE config SET enabled=?,version=version+1 WHERE id=1", new Object[]{v.getAsInteger("enabled")});
             }
             getContext().getContentResolver().notifyChange(CONTENT_URI, null);
+            getContext().getContentResolver().notifyChange(CONFIG_URI, null);
             return call("config", null, null);
         }
         if ("clear".equals(method)) {

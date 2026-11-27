@@ -426,15 +426,14 @@ private fun Overview(snapshot: FrontModel.Snapshot?) {
     }
     Card(Modifier.fillMaxWidth()) {
         Column(Modifier.padding(horizontal = 19.dp, vertical = 15.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
-            Metric("风扇实测转速 · 档位保持值", FrontPresentation.rpmText(live?.fanRpm ?: Double.NaN), "RPM", 28)
-            SecondaryText(FrontPresentation.rpmStatus(live?.fanRpmQuality ?: "waiting_hook"))
-            if (live != null && live.fanRpmWall > 0L) {
-                val at = remember(live.fanRpmWall) {
-                    SimpleDateFormat("HH:mm:ss", Locale.getDefault()).format(Date(live.fanRpmWall))
-                }
-                SecondaryText("${live.fanRpmLevel} 档 · 实测于 $at · 驱动 FG 事件")
+            val rpm = FrontPresentation.rpmText(live?.fanRpm ?: Double.NaN)
+            if (rpm != FrontPresentation.MISSING) {
+                Metric("风扇转速", rpm, "RPM", 28)
+            } else {
+                SecondaryText("风扇转速")
+                Text(if (live?.fanRpmQuality == "fan_off") "已停止" else "等待测速",
+                    style = NumericStyle, fontSize = 28.sp, fontWeight = FontWeight.Medium, lineHeight = 34.sp)
             }
-            SecondaryText("同档位保持首次有效实测，不代表连续实时速度；旧 rpm 节点已弃用。")
         }
     }
     if (live != null && live.sampleWallTimeMillis > 0L) {

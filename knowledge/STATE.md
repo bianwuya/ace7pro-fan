@@ -2,6 +2,71 @@
 
 **管理审计日期：2026-11-03。** 这是有时点的记录，不是实时设备状态。兼容矩阵以 [COMPATIBILITY.md](../COMPATIBILITY.md) 为主；待办见 [TASKS.md](../TASKS.md)。
 
+## 0.9.1-kernel-rpm：RPM已运行，日用阶梯更新已装（2026-11-27 19:05 +08:00）
+
+- 修复Root进程FG通道，App/code28及对应Root relay已实装；正式Provider已记录10档13119RPM、9档12059RPM，停机值清空通过。不是日志/档位估计，旧Hook保留，前端屏幕未复核。
+- 用户实测40.597°C仍10档已确认为daily移植遗漏更高需求。新核心按四路融合使用本机普通阶梯并max(最低档,阶梯)，40°C升温目标16，启停/回差/充电/保护及normal斜坡保留。129139×2核心断言、adapter14及relink24项通过，新驱动仍待重启实机验收。
+- 同签名App和新KO/helper统一ZIP已通过真实KSU安装，metadata身份/标签读回正确；本次boot及驻留stage4驱动未改变，因此新阶梯尚未生效，用户自行重启。所有修改落本地工程；包上传只去已核对的风扇项目仓库，不是Eta。精确身份、运行和上传边界见 [当前检查点](KERNEL-CURRENT.md) 与 [版本说明](../releases/0.9.1-kernel-rpm/NOTES.md)。
+
+## 历史：0.9.0-kernel r5自然起转与升降档（2026-11-27 18:30 +08:00）
+
+- 用户报告触发后，内核status及独立硬件节点均为目标/输出/有效10档、state1/NORMAL/fault0，内核owned/ready1。当前boot真实Root回传记录6→7→8→9→10、约5秒一档；也有低于35°C约30秒后目标0、降档停机及再次起转的自然过程，不再只是零需求验收。
+- 原驱动FG timer实际1000ms计数654–655脉冲，对应13079–13099RPM，不是目标表转速。Root FG事件及App RPM显示仍未接通，充电切换/故障交还仍未验收；本轮未改设置/代码或强制起转。证据见 [内核检查点](KERNEL-CURRENT.md)。
+
+## 历史：0.9.0-kernel r5入核与零需求核验（2026-11-27 18:13 +08:00）
+
+- boot `a7d4c185-a558-4bb9-8b8a-d995f80a3993`：实际preinit应用成功，候选oplus_fan为86016字节驻留Live，设备已绑定，eta_policy存在。Root relay正常，Provider回传内核后端active=true及daily/nodeControl控制就绪。
+- 4轮跨度12.112秒只读观察：四路温度有效，采样时间和同revision租约持续前进，owned/ready=1、fault0。自然融合34.684–34.904°C低于36°C，内核维持合法零目标并持有控制权；设置保持、不强制起转。
+- 正需求实际起转/斜坡、充电切换、故障交还仍未验收；Root FG observer当前unavailable、实测RPM未接通，不能称全部生产运行通过。本轮只核验未改代码/设置、未重装或重启。完整身份和边界见 [内核检查点](KERNEL-CURRENT.md)。
+
+## 历史：0.9.0-kernel r5标签修复及原厂恢复（2026-11-27 14:37 +08:00）
+
+- boot `7064f3a7-5214-4030-81fe-02cd3c68a129` 已证实r4早期挂载成功，但原厂加载域不能读取metadata的vold_metadata_file类型，候选驱动没有入核、LED节点缺失。只读权限矩阵已核实与原厂vendor_file的差别，不将挂载成功当加载成功。
+- 已在确认没有oplus_fan驻留后，撤除本模块唯一bind并加载精确哈希的原厂驱动，Live/present1/NORMAL与有效10档回读通过，没有卸载运行中的驱动。
+- r5对经哈希/ELF/CRC校验的单个替换inode设置原厂vendor_file标签并重读全量字节/快照；保留全部早期/未加载/回退保护，不改策略或身份。166项回归与实际Android标签函数验证通过；r5统一包已实装，metadata标签及哈希回读正确。
+- 最新入口：[内核检查点](KERNEL-CURRENT.md)。当前仍原厂驱动工作，新候选实际加载及控制仍待用户下一次自行重启后验收，本轮没有重启或改充电项目。
+
+## 历史：0.9.0-kernel r4时序修正（2026-11-27 14:01 +08:00）
+
+- 用户已重启，boot `7825ae3c-99fc-43e9-89ee-80d914e1255d`；真实日志证明旧helper在1.416秒被1.2秒固定守门误拒绝，新驱动没有加载。登记ok不等于执行成功，当前仍stock，不能称接管通过。
+- 仅改helper额外时限为10秒，保留KSU同步前置/命名空间/未入核双检查及全部身份和保护；156项回归及Android真实文件只读核验通过。统一r4 ZIP已实装，metadata新helper哈希已回读；App与driver字节不变，日用v8/充电v1保留。
+- 最新入口：[内核检查点](KERNEL-CURRENT.md)。用户自行重启，本轮没有重启、热卸载或修改充电项目；下一次启动后继续核实真实preinit结果、驱动和relay，不重复要求授权。
+
+## 上次历史：0.9.0-kernel r3首次安装（2026-11-27 13:28 +08:00）
+
+- 当前执行入口：[内核后端检查点](KERNEL-CURRENT.md)。App 原签名 versionCode27 已实装；统一 ZIP r3 已由真实 KSU 安装成功，preinit 状态 `horae_fan_spoof ok`，metadata 中 helper/完整驱动的权限、单硬链接和哈希已回读确认。
+- 未重启；原驱动与旧守护仍运行，充电模块未改，日用v8及充电v1设置保持。Root配置访问、原厂口袋及带标签性能状态的解码已修复并实机验证。包位置、哈希、日志和明确的待验边界以该检查点为准。
+- 完整控制驱动尚未加载，真实风扇接管、保护/交还及本版RPM显示仍未验收。首次控制包如实保留 production_runtime_verified=false；不把安装成功当成已控制。下一步须用户允许正常重启及首次实际控制验收。
+
+## 历史准备阶段：单 ZIP 与定点核心准备（2026-11-27，已由上方检查点取代）
+
+- 用户明确最终形式：一个KSU ZIP同时安装原签名App与独立内核模块；App只显示/设置，不重构或刷写整内核。`0.8.1-node-bridge`实验仍未安装，不作为最终方案。
+- 新增纯整数核心 `kernel/eta_fan_policy/policy_core.{h,c}`，分离日用/充电需求与normal斜坡，保留原阈值/权重/1°C30秒回差、未知/缺测保护和上下文隔离；无浮点、I/O、Binder或horae调用。普通及UBSan各124320断言通过，主代理再跑no-sanitize通过；这是主机离线测试，不是目标内核Kbuild或物理验收。
+- 新增 `tools/package_ksu_fan.py` 与两个输入schema，统一App/KO/模板/报告清单，校验原签名APK、AArch64 ELF/modinfo/MODVERSIONS/CRC及哈希，49项离线单测通过。缺真实KO、配套报告或完整已审阅安装脚本时拒绝发布；未产正式ZIP，不把合成测试ELF当可用内核。
+- 官方OnePlus SM8850最近公开材料为common6.12.58、android16-6.12 KMI6及Clangr536225；不能因补丁级不同就否定兼容，但尚未取得并验证对应prebuilt/generated headers/CRC。已查目录未定位到当前oplus_fan源码，原驱动没有控制导出；LED brightness回调只打印，不能作控制入口。sysfs对象回调生命周期/独占仲裁仍未闭合，未编译或加载新KO。
+- 后续仅定向补齐外部模块DDK/ABI与安全控制接口，不走刷内核、固定地址patch、卸载原风扇驱动的试错路线。当前设备仍0.8.0/versionCode22与伪装补丁1.1.0。
+- 证据：`build/kernel-policy-core/REPORT.md`、`build/kernel-feasibility-20261127/source-match/REPORT.md`；代码范围与检查已读回，项目check151→162文件通过。原始OEM/线程数据与密钥未进入共享交付。
+
+## 内核模块方向与性能基线（2026-11-27，实施暂停点）
+
+- 正常重启后boot `2f554681-bce5-4d4d-b76e-e94c5eff92f5`已实读加载Hook0.8.0，但nodeControl因system_app无level/state写权限而不可用，安全回退。风扇伪装守护开机自启，Temp29.50°C；充电工程未改。
+- 用户进一步明确要求不依赖整个OEM链，继而要求计算和实际控制都做成内核模块，App仅显示/设置；最新要求先测原厂频率和收益。因此0.8.1-node-bridge源码为**未完成、未构建安装、不得当成当前方案部署的实验分支增量**；也不继续Java/app_process daemon。保留现有文件，不回滚用户既有工作。root-src未创建，新增framework.jar仅分析副本，不是运行依赖。
+- 当前源码版本暂为0.8.1-node-bridge、设备安装仍0.8.0/versionCode22，不把两者混同。新的FG只读转报辅助脚本仍仅在工程中，未部署；本次实收FG raw8839但system_app读调试参数受限，quality=debug_unknown，真实RPM显示未验收通过。
+- 已完成08:14:01开始约60.8秒只读基线，首尾state0/level6/eff0/NORMAL，未改模式/阈值/节点或加载新代码。线程schedstat：horae fan-smart 4.756ms（单核0.0078%），ACEFan-Telemetr63.516ms（0.1045%），App稳定线程总23.760ms（0.0391%）。统计包含原有采样/回传，不能当作纯档位数学运算，也不能转换为耗电百分比。原生计算循环静态sleep5证据有效，cadence log为空，尚无本轮日志实测间隔。
+- 原始样本及汇总 `build/kernel-feasibility-20261127/`；测量job_0748b7c5已完成，不常驻。本轮尚未做恒负载/屏幕状态受控A/B或功耗测量。
+- 本机内核6.12.69 Android16，MODULES/MODVERSIONS/CFI/BTF开启，TRIM_UNUSED_KSYMS与模块符号保护存在；仅说明需核对，不代表可立即加载自编ko。原oplus_fan.ko无ksymtab导出段，现未取得匹配DDK/Module.symvers/驱动源码；没有实现或加载新ko，没有卸载原驱动。
+
+## 0.8.0-direct：已安装，运行Hook待正常重载（2026-11-27）
+
+- 基线 `a6f5f10` 工作树增量，App/Hook `0.8.0-direct`、versionCode22。独立软件目标经原厂普通升降档器后走OEM下游保护，精准fan-local `OplusFanController$b.n/l/i`接入level/state；不等待horae更新，不改充电模块。实际system_app写权限与物理效果仍待加载验收，不将Root的文件权限当成服务身份已验证。
+- 完整47项Python、14组Java、Compose编译、Release/lintVital和固定原签名/v3 APK审计通过；最终追加两项运行路径测试后49项Python及14组Java再通过，新后端353断言、守护26断言。日志 `build/direct-control-v080/final-regression.log`；构建日志 `/data/local/tmp/eta/daemon/job_7deffd07.log`。增加15秒源样本租约、代次停机和state-only安全关闭，OEM handler自身阻塞不保证墙钟期限。
+- 已以 `pm install -r --user 0` 覆盖安装，回读versionCode22；已装APK SHA256 `11840344deca348cd8b3de69fd91563720ff004b7ed4c750982d34b88522e9fc` 与构建一致。日用v8（开启、36°C、10档、60:0:40:0）和充电v1（开启、33°C）前后相同。未清数据、改作用域、重启整机或强杀原厂服务。
+- 最新实读原厂PID8623、运行Hook仍 `0.6.5-rpm-hold`。请求重载授权未收到回答，未当作同意；直控节点、FG事件接收与新UI真机验收尚未完成。后台虚拟屏启动返回GUI_VISIBILITY_TIMEOUT且明确未执行，已释放GUI，不把源码/构建当视觉验收。
+- FG调试参数改为真实 `/sys/module/oplus_fan/parameters/dbg_rpm`（实读-1），不再访问不存在的LED子路径；首页只显示数字RPM/已停止/等待测速，移除工程说明，未按档位或目标表伪造实测。
+- `horae_fan_spoof`脚本增量1.1.0已部署并回读校验。仅明确拔线放电且供电检查通过时，5秒检查既有补丁进程的温度漂移；插电/充电/未知不写，不启停horae。新守护 `dm_c62955ab` 已运行，状态healthy；实读Temp29.50、shell-temp29500，horae PID1815未变。启动脚本接续守护，目录锁防重复；原脚本与元数据备份 `/data/adb/horae_fan_spoof_backups/20261127-direct080/`。
+- 期间发现Android mksh调用flock不继承额外FD，首个守护未启动；已停止失败记录，改原子目录锁并实机读回运行。这是已修正的实施问题，不作为业务验收通过的替代。
+- 源码与工程未提交/推送。交付目录 `Download/eta/工作区产物/ace7pro-fan/0.8.0-direct/`；只有签名APK、简短说明与校验，原始OEM样本/日志/密钥不交付。
+
 ## 0.7.4-rpm-hold：基于云端 0.7.3 的增量整合
 
 - 云端来源为用户指定的 `origin/fix/fan-0.7.3-hysteresis`，提交 `691bbe4fe988fd15751da6bf780b87822052b553`；手机已有 App `0.7.3-fusion-hysteresis` / versionCode 20，已装 APK SHA256 `15bc31d5f0fdcf06188581aaf0c1df95cdc465bcf115131a7b7c1208e59cda40` 与该分支记录一致。原本的 `0.7.2-rpm-events` 中间包未降级安装。

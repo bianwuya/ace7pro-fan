@@ -1,0 +1,112 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Controlled local KSU fan release record, schema 1",
+  "description": "Caller-supplied, user-editable release decision. This is NOT a signature, attestation, evidence authentication system or independent proof that a KO loaded. The caller must actually review complete template scripts, provenance, genuine kernel build output, compatibility checks and actual target-device loading before issuing this record. Hashes bind the specific bytes and declaration only. No sample passing record is supplied. Missing/failed records or reports block release; --inspect emits diagnostics only and also returns nonzero while release is blocked. There is no validation-only or unsigned ZIP option.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema",
+    "kind",
+    "compatibility_sha256",
+    "template_review",
+    "reports"
+  ],
+  "properties": {
+    "schema": {
+      "const": 1
+    },
+    "kind": {
+      "const": "controlled-local-release"
+    },
+    "compatibility_sha256": {
+      "$ref": "#/$defs/sha256",
+      "description": "SHA-256 of canonical compatibility input: json.dumps(value, ensure_ascii=False, sort_keys=True, indent=2, allow_nan=False) plus one LF, encoded UTF-8. Binds exact APK/KO hashes, device fields, expected kernel/CRCs and all template hashes. --inspect reports this digest after structural/APK audit succeeds, even if release evidence is missing. For preinit-replace this also binds strategy, pinned stock hash/target, replacement hash, exact helper hash, enabled-manifest input digest and the exact preinit action/template."
+    },
+    "template_review": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "reviewer",
+        "result"
+      ],
+      "properties": {
+        "reviewer": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 192
+        },
+        "result": {
+          "const": "pass"
+        }
+      },
+      "description": "A local review assertion tied to the complete compatibility/template digest, not verified reviewer identity. No-op/placeholder screening is only a guardrail and cannot replace script review."
+    },
+    "reports": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "build",
+        "check",
+        "device_load"
+      ],
+      "properties": {
+        "build": {
+          "$ref": "#/$defs/report"
+        },
+        "check": {
+          "$ref": "#/$defs/report"
+        },
+        "device_load": {
+          "$ref": "#/$defs/report"
+        }
+      },
+      "description": "Three distinct existing nonempty UTF-8 reports supplied explicitly via --build-report, --check-report and --load-report, each <=4 MiB with at least 32 non-whitespace characters and no placeholder markers. The caller must review their contents; the builder checks file hashes, distinctness and local pass decisions, not report truth. Device-load report must refer to actual target-device loading of these bytes, not synthetic/host tests or build success. No record/report is generated automatically. Replacement reports must cover the actual full oplus_fan replacement, preserved protections and approved preinit helper/lifecycle; metadata free-space and first-load installation must be checked by the responsible caller, not inferred from offline hashes."
+    },
+    "preinit_helper": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "helper_sha256",
+        "helper_enabled_manifest_digest",
+        "result"
+      ],
+      "properties": {
+        "helper_sha256": {
+          "$ref": "#/$defs/sha256"
+        },
+        "helper_enabled_manifest_digest": {
+          "$ref": "#/$defs/sha256"
+        },
+        "result": {
+          "const": "pass"
+        }
+      },
+      "description": "REQUIRED by the builder only for preinit-replace; forbidden for additive. Exact digest fields must equal compatibility.preinit. A local helper-review assertion, NOT authentication. The same separately hashed build/check/device_load reports and compatibility digest must cover this helper, enabled immutable manifest and full replacement. The builder does not treat editable pass decisions as device proof."
+    }
+  },
+  "$defs": {
+    "sha256": {
+      "type": "string",
+      "pattern": "^[a-f0-9]{64}$",
+      "not": {
+        "const": "0000000000000000000000000000000000000000000000000000000000000000"
+      }
+    },
+    "report": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "sha256",
+        "result"
+      ],
+      "properties": {
+        "sha256": {
+          "$ref": "#/$defs/sha256"
+        },
+        "result": {
+          "const": "pass"
+        }
+      }
+    }
+  }
+}

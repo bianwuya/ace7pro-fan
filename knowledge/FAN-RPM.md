@@ -1,4 +1,16 @@
+## 0.8.0 路径修正
+
+实机调试参数为 `/sys/module/oplus_fan/parameters/dbg_rpm`，不是风扇LED目录下的同名文件。已修正两处读取；缺失/调试覆盖仍拒收，实测只取FG事件，不恢复旧rpm轮询。首页停转显示“已停止”，无事件显示“等待测速”，不展示工程说明。
+
 # 风扇测速证据与保持语义
+
+## 0.9.1 Root接入修复
+
+独立内核后端的Root relay与原厂Hook不在同一进程，不能共享旧FanRpm内存。现新增Root进程自己的被动接收器，通过本机已验证的Android UEventObserver原生接收接口接收kernel认证的原始事件，只接受精确风扇DEVPATH、leds/change消息，不改原厂监听、硬件测速或策略。每次事件以真实state/effective前后读回和dbg_rpm校验后进入同一个FanRpm保持逻辑；Root不借旧property回退放行。
+
+0.9.1/code28已在本机安装，独立被动probe实收13039RPM；正式Provider已记录10档首次保持13119RPM、9档重新测量12059RPM，停转后值清除。新事件不会用后续同档波动覆盖首次有效值。旧可选Hook仍保留；未做前端屏幕视觉检查，但App原有消费字段、数值和状态均已通过实际Provider链核对。代码、验证和包身份见 [本版说明](../releases/0.9.1-kernel-rpm/NOTES.md)。
+
+以下为既有原厂Hook路径和测量约束，仍保留适用。
 
 ## 0.7.4 集成与原始需求边界
 

@@ -22,6 +22,7 @@ public final class FrontPresentation {
     public enum BatterySource { UNKNOWN, THERMAL, POWER_SUPPLY, STICKY }
 
     public enum DailyStatus {
+        KERNEL_CONTROL("内核控制中"), KERNEL_BLOCKED("安全门控未允许 · 已交还原厂"),
         CONFIG_UNAVAILABLE("设置不可读"), DISABLED("未启用"), POWER_UNKNOWN("未确认电池放电"),
         EXTERNAL_POWER("外部供电时不介入"), RELOAD("模块待重载"), HOOK_READ_FAILED("模块未能读取设置"),
         WAITING_CONFIG("等待模块读取当前设置"), WAITING_SAMPLE("已读取设置 · 等待新鲜回报"),
@@ -108,6 +109,8 @@ public final class FrontPresentation {
             if (dailyConfigReadFailed) return DailyStatus.HOOK_READ_FAILED;
             if (!dailyConfigAcknowledged) return DailyStatus.WAITING_CONFIG;
             switch (dailyState) {
+                case "kernel_control": return DailyStatus.KERNEL_CONTROL;
+                case "kernel_blocked": return DailyStatus.KERNEL_BLOCKED;
                 case "below_threshold": return DailyStatus.TOO_COOL;
                 case "ready": return DailyStatus.WAITING_CANDIDATE;
                 case "waiting_oem": return DailyStatus.OEM_ZERO;
@@ -229,7 +232,8 @@ public final class FrontPresentation {
                 new double[]{battery, number(row, "board"), number(row, "fan"), number(row, "mos")},
                 number(row, "effective"), hookVersion, version(row, "configVersion"), number(row, "fused"),
                 chargePhase(text(row, "phase")), flag(row, "active"), daily,
-                source == Source.HOOK ? rpm(row, wall, integer(row, "elapsed")) : null);
+                source == Source.HOOK ? rpm(row, wall, integer(row, "elapsed")) : null,
+                "内核控制".equals(text(row, "hook")));
     }
 
     static final class RpmReading {
@@ -285,6 +289,7 @@ public final class FrontPresentation {
 
     private static Source source(String marker) {
         switch (marker) {
+            case "内核控制": // trusted controller category; not a claim that Xposed is injected
             case "已注入": return Source.HOOK;
             case "Root只读预览": return Source.ROOT_PREVIEW;
             case "未注入·App观测": return Source.APP_OBSERVATION;
@@ -307,14 +312,15 @@ public final class FrontPresentation {
             case "below_threshold": case "cooling": case "ready": case "waiting_oem": case "scene_blocked":
             case "health_blocked": case "candidate_applied": case "oem_level_sufficient": case "oem_stopped":
             case "oem_limited": case "request_confirmed": case "request_observed": case "thermal_blocked":
-            case "auto_target_unverified": case "stop_candidate": case "stop_requested": case "oem_override": return state;
+            case "auto_target_unverified": case "stop_candidate": case "stop_requested": case "oem_override":
+            case "kernel_control": case "kernel_blocked": return state;
             default: return "";
         }
     }
 
     private static String chargePhase(String phase) {
         switch (phase) {
-            case "oem": case "screen_off": case "locked_handoff": case "unlock_grace": return phase;
+            case "oem": case "screen_off": case "locked_handoff": case "unlock_grace": case "kernel_control": return phase;
             default: return "";
         }
     }
@@ -362,7 +368,7 @@ public final class FrontPresentation {
         final BatterySource batterySource;
         private final double[] temperatures;
         final double effectiveLevel, chargeFusedTemp;
-        final boolean chargeActive;
+        final boolean chargeActive, kernel;
         final DailyReading daily;
         final RpmReading fanRpm;
 
@@ -376,7 +382,14 @@ public final class FrontPresentation {
         Reading(long wall, long elapsed, String boot, Source source, Power power, Mode mode, BatterySource batterySource,
                 double[] temperatures, double effectiveLevel, String hookVersion, long chargeVersion,
                 double chargeFusedTemp, String chargePhase, boolean chargeActive, DailyReading daily, RpmReading fanRpm) {
-            this.fanRpm = fanRpm;
+            this(wall, elapsed, boot, source, power, mode, batterySource, temperatures, effectiveLevel,
+                    hookVersion, chargeVersion, chargeFusedTemp, chargePhase, chargeActive, daily, fanRpm, false);
+        }
+
+        Reading(long wall, long elapsed, String boot, Source source, Power power, Mode mode, BatterySource batterySource,
+                double[] temperatures, double effectiveLevel, String hookVersion, long chargeVersion,
+                double chargeFusedTemp, String chargePhase, boolean chargeActive, DailyReading daily, RpmReading fanRpm, boolean kernel) {
+            this.kernel = kernel; this.fanRpm = fanRpm;
             this.wall = wall; this.elapsed = elapsed; this.boot = boot;
             this.source = source; this.power = power; this.batterySource = batterySource;
             this.mode = source != Source.HOOK || (mode == Mode.DAILY && daily == null) ? Mode.OEM : mode;
@@ -414,7 +427,7 @@ public final class FrontPresentation {
             String boot, String expectedHookVersion, long savedDailyVersion, long savedChargeVersion) {
         Reading shown = displayReading(hook, stored, local, power, wall, elapsed, boot);
         boolean hookFresh = hook != null && hook.source == Source.HOOK && fresh(hook, wall, elapsed, boot, HOOK_FRESH_MS);
-        boolean needsReload = hookFresh && !expectedHookVersion.equals(hook.hookVersion);
+        boolean needsReload = hookFresh && !hook.kernel && !expectedHookVersion.equals(hook.hookVersion);
         Mode mode = Mode.OEM;
         if (hookFresh && !needsReload && shown == hook) {
             if (power == Power.BATTERY && hook.mode == Mode.DAILY) mode = Mode.DAILY;
@@ -422,7 +435,8 @@ public final class FrontPresentation {
         }
         return new Live(power, mode, shown, hookFresh ? hook : null, needsReload,
                 mode == Mode.CHARGE && hook.chargeActive && ("screen_off".equals(hook.chargePhase)
-                        || "locked_handoff".equals(hook.chargePhase) || "unlock_grace".equals(hook.chargePhase)),
+                        || "locked_handoff".equals(hook.chargePhase) || "unlock_grace".equals(hook.chargePhase)
+                        || "kernel_control".equals(hook.chargePhase)),
                 savedDailyVersion, savedChargeVersion);
     }
 
@@ -436,9 +450,14 @@ public final class FrontPresentation {
         return new Preview(fresh, config, DailyFanPolicy.fuse(config, values));
     }
 
+    static boolean freshRoot(Reading reading, long wall, long elapsed, String boot) {
+        return reading != null && reading.kernel && reading.source == Source.HOOK
+                && fresh(reading, wall, elapsed, boot, 11999L);
+    }
+
     private static boolean fresh(Reading reading, long wall, long elapsed, String boot, long maximumAge) {
         return reading != null && ReportFreshness.fresh(reading.wall, reading.elapsed, wall, elapsed,
-                reading.boot, boot, maximumAge);
+                reading.boot, boot, reading.kernel ? Math.min(maximumAge, 11999L) : maximumAge);
     }
 
     static long trendStart(long nowWall, int minutes) {
@@ -476,7 +495,7 @@ public final class FrontPresentation {
 
     private static boolean continuous(Reading a, Reading b) {
         if (a == null || a.source != b.source || a.source == Source.UNKNOWN || a.source == Source.NONE
-                || a.mode != b.mode || a.power != b.power || a.batterySource != b.batterySource
+                || a.mode != b.mode || a.power != b.power || a.batterySource != b.batterySource || a.kernel != b.kernel
                 || !a.hookVersion.equals(b.hookVersion) || a.boot.isEmpty() || !a.boot.equals(b.boot)
                 || a.wall >= b.wall || a.elapsed >= b.elapsed || !fresh(a, b.wall, b.elapsed, b.boot, TREND_GAP_MS)) return false;
         return a.mode != Mode.DAILY || (a.daily.version == b.daily.version && a.daily.contributorMask == b.daily.contributorMask);

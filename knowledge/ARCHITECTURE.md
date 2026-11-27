@@ -1,3 +1,7 @@
+## 0.8.0 增量
+
+`DailyFanPolicy/ChargeCurve → OemFanRamp → FanMode自动目标 → 原厂orchestrator保护 → 原厂setter副作用 → FanNodeIo(level/state)`。软件周期独立于horae；精准fan-local Hook与写权限未通过时明确报告兼容回退。后文为旧候选路径说明；其中“不写sysfs”仅适用于旧路径。
+
 # 架构与运行诊断
 
 仅在原厂 `com.oplus.exsystemservice` 主进程工作，目标 ACE 7 系列。具体范围与验证事实见 [COMPATIBILITY](../COMPATIBILITY.md)。

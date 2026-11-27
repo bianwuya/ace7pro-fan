@@ -1,0 +1,248 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Explicit first-control commissioning decision, schema 1",
+  "description": "Separate from controlled-local-release. Requires --commissioning-record, --confirm-first-control, exact preinit-replace compatibility with commissioning_profile=first-control, audited signed APK, genuine replacement KO, enabled static helper and complete reviewed templates including META-INF installer. Build/check and optional observer reports must have distinct exact bytes, no placeholders and at least 32 characters after trimming outer whitespace. UNVERIFIED caveats are allowed only here. Local JSON is not authenticated proof. No device_load report is accepted; production_runtime_verified=false and candidate_control_tested=false are mandatory. This builder never installs or reboots. Release gates remain unchanged. Raw reports, record and host paths are not included in the ZIP.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema",
+    "kind",
+    "profile",
+    "compatibility_sha256",
+    "production_runtime_verified",
+    "candidate_control_tested",
+    "acknowledgement",
+    "template_review",
+    "preinit_helper",
+    "reports"
+  ],
+  "properties": {
+    "schema": {
+      "const": 1
+    },
+    "kind": {
+      "const": "controlled-local-commissioning"
+    },
+    "profile": {
+      "const": "first-control"
+    },
+    "compatibility_sha256": {
+      "$ref": "#/$defs/sha256"
+    },
+    "production_runtime_verified": {
+      "const": false
+    },
+    "candidate_control_tested": {
+      "const": false
+    },
+    "acknowledgement": {
+      "const": "first-control-unverified-no-auto-install-or-reboot"
+    },
+    "template_review": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "reviewer",
+        "result"
+      ],
+      "properties": {
+        "reviewer": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 192
+        },
+        "result": {
+          "const": "pass"
+        }
+      }
+    },
+    "preinit_helper": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "helper_sha256",
+        "helper_enabled_manifest_digest",
+        "result"
+      ],
+      "properties": {
+        "helper_sha256": {
+          "$ref": "#/$defs/sha256"
+        },
+        "helper_enabled_manifest_digest": {
+          "$ref": "#/$defs/sha256"
+        },
+        "result": {
+          "const": "pass"
+        }
+      }
+    },
+    "reports": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "build",
+        "check"
+      ],
+      "properties": {
+        "build": {
+          "$ref": "#/$defs/report"
+        },
+        "check": {
+          "$ref": "#/$defs/report"
+        }
+      }
+    },
+    "observer_evidence": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "sha256",
+        "scope"
+      ],
+      "properties": {
+        "sha256": {
+          "$ref": "#/$defs/sha256"
+        },
+        "scope": {
+          "const": "observer-only-not-control-load"
+        }
+      },
+      "description": "Present if and only if --observer-report is provided. Hashes actual supplied observer report bytes, but never establishes candidate control loading or testing."
+    },
+    "vermagic_release_review": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "target_kernel_release",
+        "expected_vermagic",
+        "reason",
+        "result"
+      ],
+      "properties": {
+        "target_kernel_release": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 192
+        },
+        "expected_vermagic": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 512
+        },
+        "reason": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 1024
+        },
+        "result": {
+          "const": "pass"
+        }
+      },
+      "description": "Required if and only if expected_vermagic first token differs from exact target_kernel_release. Both strings must exactly repeat compatibility values and the reviewer must state a concrete reason and accept this first-control uncertainty. Only commissioning allows this reviewed mismatch; production equality gate is unchanged. This is not loadability or runtime acceptance."
+    },
+    "elf_candidate_layout_review": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "file_alignment",
+        "duplicate_import_namespaces",
+        "reason",
+        "result"
+      ],
+      "properties": {
+        "file_alignment": {
+          "type": "array",
+          "maxItems": 2,
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "section",
+              "offset",
+              "size",
+              "alignment"
+            ],
+            "properties": {
+              "section": {
+                "enum": [
+                  ".plt",
+                  ".gnu.linkonce.this_module"
+                ]
+              },
+              "offset": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "size": {
+                "type": "integer",
+                "minimum": 1
+              },
+              "alignment": {
+                "type": "integer",
+                "minimum": 2,
+                "maximum": 1048576
+              }
+            }
+          }
+        },
+        "duplicate_import_namespaces": {
+          "type": "array",
+          "maxItems": 4096,
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "namespace",
+              "occurrences"
+            ],
+            "properties": {
+              "namespace": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 4096
+              },
+              "occurrences": {
+                "type": "integer",
+                "minimum": 2
+              }
+            }
+          }
+        },
+        "reason": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 1024
+        },
+        "result": {
+          "const": "pass"
+        }
+      },
+      "description": "Required if and only if the real commissioning ELF parser reports known candidate layout observations. Arrays must exactly match actual observed sections/offsets/sizes/alignments and duplicate import_ns namespace counts, including types and order; use empty arrays for absent categories. Only non-aligned SHT_PROGBITS .plt SHF_ALLOC and .gnu.linkonce.this_module SHF_ALLOC|SHF_WRITE file offsets and repeated identical import_ns entries can be reviewed. All bounds/overlaps/hash/CRC/other modinfo checks remain. Production still rejects both cases; this is not a blanket ELF waiver or loadability proof."
+    }
+  },
+  "$defs": {
+    "sha256": {
+      "type": "string",
+      "pattern": "^[a-f0-9]{64}$",
+      "not": {
+        "const": "0000000000000000000000000000000000000000000000000000000000000000"
+      }
+    },
+    "report": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "sha256",
+        "result"
+      ],
+      "properties": {
+        "sha256": {
+          "$ref": "#/$defs/sha256"
+        },
+        "result": {
+          "const": "pass"
+        }
+      }
+    }
+  }
+}

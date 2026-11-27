@@ -63,11 +63,10 @@ internal fun FanTrends(snapshot: FrontModel.Snapshot?, minutes: Int, onMinutes: 
     TrendCard("传感器曲线", "°C", rows, raw, end, minutes, missing, levels = false)
     TrendCard("有效档位", "档", rows, levels, end, minutes, missing, levels = true)
     val rpm = remember(rows, colors.primary) {
-        listOf(Line("本档位实测保持值", colors.primary, rows.map { it.fanRpm }, step = true, heldRpm = true))
+        listOf(Line("风扇转速", colors.primary, rows.map { it.fanRpm }, step = true, heldRpm = true))
     }
-    TrendCard("风扇实测转速 · 档位保持", "RPM", rows, rpm, end, minutes,
-        if (rows.isEmpty()) missing else "此范围尚无有效驱动测速；换档后等待新的实测。", levels = false, rpm = true)
-    SecondaryText("测速曲线保持本档位首次有效实测，不是连续实时速度；停转、故障或档位未知时断开。")
+    TrendCard("风扇转速", "RPM", rows, rpm, end, minutes,
+        if (rows.isEmpty()) missing else "等待测速", levels = false, rpm = true)
 }
 
 private data class Line(val label: String, val color: Color, val data: List<Double>,

@@ -1,0 +1,425 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Offline KSU fan compatibility input, schema 1",
+  "description": "A caller-supplied compatibility declaration, not device or kernel-loadability proof. No ready-to-use manifest, KO or installer is supplied. The builder enforces this contract with Python stdlib checks; this schema is for input tooling and is not fetched or executed. SHA-256 values use lowercase hexadecimal. Source project.json and project.py audit-apk remain the authority for APK signing identity/package/version.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema",
+    "target_kernel_release",
+    "expected_vermagic",
+    "expected_symbol_crcs",
+    "certsha",
+    "device",
+    "artifacts",
+    "templates"
+  ],
+  "properties": {
+    "schema": {
+      "const": 1
+    },
+    "target_kernel_release": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 192,
+      "pattern": "^[A-Za-z0-9][A-Za-z0-9._+-]*$",
+      "description": "Exact target uname release, not a substring match. Locally asserted, not read from a device by this builder."
+    },
+    "expected_vermagic": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 512,
+      "description": "Exact .modinfo vermagic including any trailing space; tokens must include modversions. Production requires its first token to equal target_kernel_release. Only explicit first-control commissioning may retain distinct exact OEM uname and module vermagic identities, and then a hash-bound commissioning vermagic_release_review is mandatory. The helper embedded manifest still must independently match both strings and all CRC/hash identities."
+    },
+    "expected_symbol_crcs": {
+      "type": "object",
+      "minProperties": 1,
+      "maxProperties": 4096,
+      "required": [
+        "module_layout"
+      ],
+      "propertyNames": {
+        "pattern": "^[A-Za-z_][A-Za-z0-9_]*$"
+      },
+      "additionalProperties": {
+        "type": "string",
+        "pattern": "^0x[a-f0-9]{8}$"
+      },
+      "description": "Exact target MODVERSIONS CRC inventory, including module_layout. The builder compares every classic 64-byte __versions record, all undefined imports and this inventory. Expected CRC provenance must be checked by the caller and covered by the local reports."
+    },
+    "certsha": {
+      "$ref": "#/$defs/sha256"
+    },
+    "device": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "family",
+        "hardware"
+      ],
+      "properties": {
+        "family": {
+          "const": "ACE7"
+        },
+        "hardware": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "ro.product.device",
+            "ro.product.model",
+            "ro.soc.model",
+            "ro.board.platform"
+          ],
+          "properties": {
+            "ro.product.device": {
+              "$ref": "#/$defs/hardwareText"
+            },
+            "ro.product.model": {
+              "$ref": "#/$defs/hardwareText"
+            },
+            "ro.soc.model": {
+              "$ref": "#/$defs/hardwareText"
+            },
+            "ro.board.platform": {
+              "$ref": "#/$defs/hardwareText"
+            }
+          },
+          "description": "Exact caller-supplied target properties bound to the local record. No live-device checks are made here. The reviewed installer must independently enforce target compatibility before mutation."
+        }
+      }
+    },
+    "artifacts": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "apk",
+        "ko"
+      ],
+      "properties": {
+        "apk": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "sha256",
+            "package_name"
+          ],
+          "properties": {
+            "sha256": {
+              "$ref": "#/$defs/sha256"
+            },
+            "package_name": {
+              "const": "dev.eta.acefan"
+            }
+          }
+        },
+        "ko": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "sha256",
+            "name",
+            "license"
+          ],
+          "properties": {
+            "sha256": {
+              "$ref": "#/$defs/sha256"
+            },
+            "name": {
+              "type": "string",
+              "pattern": "^[a-z][a-z0-9_]{0,55}$",
+              "description": "For additive: eta_fan_policy or another exact standalone name, never oplus_fan. For explicit preinit-replace: exactly oplus_fan, packaged only at preinit/bin/oplus_fan.replacement (not a second insmod payload)."
+            },
+            "license": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 128
+            }
+          }
+        }
+      }
+    },
+    "templates": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "module.prop",
+        "customize.sh",
+        "service.sh",
+        "uninstall.sh",
+        "META-INF/com/google/android/update-binary",
+        "META-INF/com/google/android/updater-script"
+      ],
+      "properties": {
+        "module.prop": {
+          "$ref": "#/$defs/sha256"
+        },
+        "customize.sh": {
+          "$ref": "#/$defs/sha256"
+        },
+        "service.sh": {
+          "$ref": "#/$defs/sha256"
+        },
+        "uninstall.sh": {
+          "$ref": "#/$defs/sha256"
+        },
+        "META-INF/com/google/android/update-binary": {
+          "$ref": "#/$defs/sha256"
+        },
+        "META-INF/com/google/android/updater-script": {
+          "$ref": "#/$defs/sha256"
+        },
+        "post-fs-data.sh": {
+          "$ref": "#/$defs/sha256"
+        },
+        "boot-completed.sh": {
+          "$ref": "#/$defs/sha256"
+        },
+        "action.sh": {
+          "$ref": "#/$defs/sha256"
+        },
+        "watchdog.sh": {
+          "$ref": "#/$defs/sha256"
+        },
+        "preinit/preinit.conf": {
+          "$ref": "#/$defs/sha256"
+        },
+        "fg-debug.sh": {
+          "$ref": "#/$defs/sha256"
+        },
+        "allow-control": {
+          "$ref": "#/$defs/sha256"
+        }
+      },
+      "description": "Exact inventory and SHA-256 of all files in the explicit reviewed template directory. Only these text files and their necessary directories are allowed; symlinks, extra files, no-op scripts and placeholder markers are refused. No templates are generated or inferred. module.prop must contain exactly id/name/version/versionCode/author/description, id=horae_fan_spoof, name=风扇控制, description=风扇控制与状态显示。 and current audited App version/versionCode. updater-script is #MAGISK plus LF. Shell semantics, the non-charging 29.5 C rule, charging non-interference and install/uninstall correctness are the caller's review responsibility, not established by this offline builder. Only preinit-replace additionally requires preinit/preinit.conf, with exact bytes exec bin/fan-preinit --apply plus LF and no other actions. No additional files or executable payloads are allowed under preinit; helper and replacement are explicit separate inputs. The current helper reports apply success with code 10, while KSU nonzero exec handling requires lifecycle coordination; this builder does not force script text to translate that return code. Only the explicit commissioning_profile=first-control channel additionally requires fg-debug.sh and allow-control; both are forbidden in additive and ordinary release. allow-control must be exactly first-control plus LF, is non-executable, and is hash-bound like every template. fg-debug.sh retains the same reviewed shell/shebang/no-second-load checks."
+    },
+    "strategy": {
+      "enum": [
+        "additive",
+        "preinit-replace"
+      ],
+      "default": "additive",
+      "description": "Omitted retains the original additive profile exactly. OEM replacement requires the explicit preinit-replace strategy; no automatic profile inference."
+    },
+    "preinit": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "target",
+        "stock_hash",
+        "helper_sha256",
+        "helper_enabled_manifest_digest",
+        "command"
+      ],
+      "properties": {
+        "target": {
+          "const": "/vendor_dlkm/lib/modules/oplus_fan.ko"
+        },
+        "stock_hash": {
+          "const": "a1abed95ae8ab56402f13efa39ddd3253da606fafe119cf347a9ed6155039ddd"
+        },
+        "helper_sha256": {
+          "$ref": "#/$defs/sha256"
+        },
+        "helper_enabled_manifest_digest": {
+          "$ref": "#/$defs/sha256",
+          "description": "SHA-256 of the exact bytes of the explicit --helper-enabled-manifest JSON file, whose fields follow $defs.helperEnabledManifest. This is a mirror of the immutable C manifest, not a true/verified flag. The builder parses the helper ELF fan_release_manifest read-only symbol and compares every field with this JSON and the KO/kernel/version-section identities."
+        },
+        "command": {
+          "const": "exec bin/fan-preinit --apply"
+        }
+      },
+      "description": "Allowed only for explicit preinit-replace. Helper is supplied separately via --preinit-helper, never copied from templates. ELF64 LE AArch64 ET_EXEC, no INTERP/DYNAMIC/NEEDED; unstripped fan_release_manifest object must be read-only and enabled. Default disabled DEV helper is refused. ZIP helper/replacement share preinit/bin/. Entire preinit subtree must total strictly less than 4 MiB. Installer must separately check at least 8 MiB free in metadata; this builder does NOT verify device space, first-load timing, mounts, successful loading or return-code integration."
+    },
+    "commissioning_profile": {
+      "const": "first-control",
+      "description": "Only with --commissioning-record and --confirm-first-control, never a production release. Requires preinit-replace and both first-control template files. No implicit installation or reboot."
+    }
+  },
+  "$defs": {
+    "sha256": {
+      "type": "string",
+      "pattern": "^[a-f0-9]{64}$",
+      "not": {
+        "const": "0000000000000000000000000000000000000000000000000000000000000000"
+      }
+    },
+    "hardwareText": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 192
+    },
+    "helperEnabledManifest": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "schema",
+        "present",
+        "filename",
+        "sha256",
+        "size",
+        "kernel_release",
+        "kmi",
+        "vermagic",
+        "versions_sha256",
+        "versions_count"
+      ],
+      "properties": {
+        "schema": {
+          "const": 1
+        },
+        "present": {
+          "const": 1
+        },
+        "filename": {
+          "const": "oplus_fan.replacement"
+        },
+        "sha256": {
+          "$ref": "#/$defs/sha256"
+        },
+        "size": {
+          "type": "integer",
+          "minimum": 64,
+          "exclusiveMaximum": 4194304
+        },
+        "kernel_release": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 127
+        },
+        "kmi": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 95
+        },
+        "vermagic": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 255
+        },
+        "versions_sha256": {
+          "$ref": "#/$defs/sha256"
+        },
+        "versions_count": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 4096
+        }
+      },
+      "description": "Separate --helper-enabled-manifest JSON input, not an installed runtime config or an authentication record. Values mirror struct fan_manifest in the supplied helper. SHA/size bind the replacement bytes, versions_sha256 hashes raw __versions section bytes, versions_count counts its classic 64-byte entries. kernel_release/vermagic must match compatibility; KMI is derived with the existing helper release parser. Every field is compared against the actual read-only 72-byte ELF fan_release_manifest object. Integer present=1 alone cannot enable a disabled binary. Unstripped named symbol is deliberately required; unsupported ABI/layout is refused."
+    }
+  },
+  "allOf": [
+    {
+      "if": {
+        "required": [
+          "strategy"
+        ],
+        "properties": {
+          "strategy": {
+            "const": "preinit-replace"
+          }
+        }
+      },
+      "then": {
+        "required": [
+          "preinit"
+        ],
+        "properties": {
+          "artifacts": {
+            "properties": {
+              "ko": {
+                "properties": {
+                  "name": {
+                    "const": "oplus_fan"
+                  },
+                  "sha256": {
+                    "not": {
+                      "const": "a1abed95ae8ab56402f13efa39ddd3253da606fafe119cf347a9ed6155039ddd"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "templates": {
+            "required": [
+              "preinit/preinit.conf"
+            ]
+          }
+        }
+      },
+      "else": {
+        "not": {
+          "required": [
+            "preinit"
+          ]
+        },
+        "properties": {
+          "artifacts": {
+            "properties": {
+              "ko": {
+                "properties": {
+                  "name": {
+                    "not": {
+                      "const": "oplus_fan"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "templates": {
+            "not": {
+              "required": [
+                "preinit/preinit.conf"
+              ]
+            }
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "required": [
+          "commissioning_profile"
+        ]
+      },
+      "then": {
+        "required": [
+          "strategy"
+        ],
+        "properties": {
+          "strategy": {
+            "const": "preinit-replace"
+          },
+          "templates": {
+            "required": [
+              "fg-debug.sh",
+              "allow-control"
+            ]
+          }
+        }
+      },
+      "else": {
+        "properties": {
+          "templates": {
+            "not": {
+              "anyOf": [
+                {
+                  "required": [
+                    "fg-debug.sh"
+                  ]
+                },
+                {
+                  "required": [
+                    "allow-control"
+                  ]
+                }
+              ]
+            }
+          }
+        }
+      }
+    }
+  ]
+}

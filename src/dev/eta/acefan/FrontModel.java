@@ -212,6 +212,9 @@ public final class FrontModel {
 
     private static FrontPresentation.Reading newest(FrontPresentation.Reading latest,
             List<FrontPresentation.Reading> rows, boolean hookOnly) {
+        // Provider's current UID0 publisher takes precedence over a skewed wall clock on an
+        // older legacy Hook row. Once root publication expires, normal history selection resumes.
+        if (FrontPresentation.freshRoot(latest, System.currentTimeMillis(), SystemClock.elapsedRealtime(), Boot.ID)) return latest;
         for (int i = rows.size() - 1; i >= 0; i--) {
             FrontPresentation.Reading row = rows.get(i);
             if (row != null && (!hookOnly || row.source == FrontPresentation.Source.HOOK))

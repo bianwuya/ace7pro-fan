@@ -1,0 +1,6 @@
+id=horae_fan_spoof
+name=风扇控制
+version=0.9.1-kernel-rpm
+versionCode=28
+author=Eta
+description=风扇控制与状态显示。

@@ -29,6 +29,7 @@ public final class Telemetry {
     private static final long DISCOVERY_RETRY_MS = 60_000L;
     private static final String THERMAL_ROOT = "/sys/class/thermal";
     private static final String FAN_ROOT = "/sys/class/leds/fan/";
+    private static final String FAN_DEBUG_RPM = "/sys/module/oplus_fan/parameters/dbg_rpm";
     private static final String[] TYPES = {"battery", "board_temp", "fan_temp", "svooc_mos_btb_usr"};
     private static final FanRpm FAN_RPM = new FanRpm();
 
@@ -177,7 +178,20 @@ public final class Telemetry {
         putNullable(out, "state", state);
         putNullable(out, "fanStatus", status);
         FanRpm.View view = FAN_RPM.snapshot(System.currentTimeMillis(), SystemClock.elapsedRealtime(),
-                state, effective, readInt(FAN_ROOT + "dbg_rpm"), status);
+                state, effective, readDebugRpm(), status);
+        addFanRpm(out, view);
+    }
+
+    /** Kernel report path: no thermal discovery or cached rpm/speed reads. The debug source is
+     * genuinely read; the independent passive root receiver fills this process's latch. */
+    static void addKernelFanRpm(JSONObject out, long state, long effective, String status) {
+        Integer debug = readInt(FAN_DEBUG_RPM); // root must not fall back to an App/property debug cache
+        putNullable(out, "fanDebugRpm", debug);
+        addFanRpm(out, FAN_RPM.snapshot(System.currentTimeMillis(), SystemClock.elapsedRealtime(),
+                state < 0 ? null : state, effective < 0 ? null : effective, debug, status));
+    }
+
+    private static void addFanRpm(JSONObject out, FanRpm.View view) {
         JSONObject rpm = new JSONObject();
         put(rpm, "source", FanRpm.SOURCE);
         put(rpm, "observer", view.observer);
@@ -195,12 +209,19 @@ public final class Telemetry {
     static void fanRpmObserver(boolean ready) { FAN_RPM.observer(ready); }
     static boolean fanRpmRequest(int requested) { return FAN_RPM.request(requested); }
 
-    /** Called only from the OEM's existing event callback. No listener or test is started here. */
+    /** Legacy OEM callback remains available; its existing property fallback stays scoped to that process. */
     static boolean fanRpmEvent(String path, String state, String raw) {
+        return fanRpmEvent(path, state, raw, false);
+    }
+    /** Independent root callback must read the real debug parameter, never the legacy property fallback. */
+    static boolean rootFanRpmEvent(String path, String state, String raw) {
+        return fanRpmEvent(path, state, raw, true);
+    }
+    private static boolean fanRpmEvent(String path, String state, String raw, boolean root) {
         long token = FAN_RPM.token();
         long wall = System.currentTimeMillis(), elapsed = SystemClock.elapsedRealtime();
         Long enabled = readLong(FAN_ROOT + "state"), effective = readLong(FAN_ROOT + "level_eff");
-        Integer debug = readInt(FAN_ROOT + "dbg_rpm");
+        Integer debug = root ? readInt(FAN_DEBUG_RPM) : readDebugRpm();
         String status = readText(FAN_ROOT + "status");
         // Both bracketing driver reads and cache generation must agree. An edge is not a measurement.
         if (enabled == null || !enabled.equals(readLong(FAN_ROOT + "state")) || effective == null
@@ -208,7 +229,7 @@ public final class Telemetry {
         return FAN_RPM.accept(token, path, state, raw, wall, elapsed, enabled, effective, debug, status);
     }
 
-    private static String getBootId() {
+    static String getBootId() {
         synchronized (LOCK) {
             if (!bootResolved) {
                 String value = readText("/proc/sys/kernel/random/boot_id");
@@ -218,6 +239,16 @@ public final class Telemetry {
             }
             return bootId;
         }
+    }
+
+    private static Integer readDebugRpm() {
+        Integer direct = readInt(FAN_DEBUG_RPM);
+        if (direct != null) return direct;
+        try {
+            Class<?> properties = Class.forName("android.os.SystemProperties");
+            String report = (String) properties.getMethod("get", String.class).invoke(null, FanDebugReport.PROPERTY);
+            return FanDebugReport.parse(report, getBootId(), SystemClock.elapsedRealtime());
+        } catch (Exception ignored) { return null; }
     }
 
     private static Integer readInt(String path) {
