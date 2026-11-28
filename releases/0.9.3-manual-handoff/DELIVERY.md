@@ -8,7 +8,7 @@
 - APK SHA `23e5003058ddca0636613871a3876a76f146dfe869dce2059dc74f2897a02e6f`；原证书SHA `2623f23ea49724141fb2e194f835947e7b4cd74da37f7887c22947fc7775808d`。
 - stage6 KO SHA `b0b57952bd1522ea45cb5de2f11edd5cf2c11e2233a7c55a0ada6749f069bd24`；新helper SHA `825b6baed8b710778ffbde6778531756c7f6bac4777f1e3fd88256d38258a378`。
 
-## 已安装，不等于已驻留
+## 原始安装观察（重启前）
 
 2026-11-28 01:11附近（设备本地Asia/Shanghai）KSU真实安装退出0，回报Module installed successfully。App versionCode30/versionName与包内APK哈希读回一致；用户日用v8（36°C/最低10/60:0:40:0）及充电v1（33°C/最低6/每度2/上限20）保持。
 
@@ -16,10 +16,12 @@
 
 未重启、未热卸载驱动、未强杀或启停原厂服务。核对时boot仍 `a7d4c185-a558-4bb9-8b8a-d995f80a3993`，驻留仍stage4，运行文件SHA `982b21f26d733e4fbf6056eb288a5df9245e81a503302e6d5532059dac8c7600`，现有Root仍code29；新Hook也尚未重载。系统模式已恢复智能0，customize仍100，dbg_rpm仍-1。新驱动不能通过热更新App获得。
 
-## 正式发布条件
+## 重启后实机与正式分发
 
-用户已授权修好后正式发布、不要预发布；README已改为功能与实现说明。但新KO/Hook必须正常重启后验证，尚未满足正式发布条件，因此本轮尚未创建code30 GitHub正式或预发布，也没覆盖旧资产。
+2026-11-28已完成用户正常重启后的限定回归：boot `33cd1f53-48ce-4c21-8509-eac6e2dc30d2`，stage6驱动SHA与本包一致，新内核遥测扩展实际推进；正式Provider回报code30，原厂消费release令牌且实际启动20档。完整数据见 [实机验收](RUNTIME_ACCEPTANCE.md)。
 
-下一步：用户正常重启后核对stage6真实驻留、Root/Hook30与配置；测试智能直接极限第一下、静音/极限互切、返回智能；在手动owned0时检查四路sampleAt连续推进、Provider新增有效温度/融合及曲线。通过后再正式发布；若BLOCKED依原厂处理，不清保护凑验收。真正任意内核通用未完成，helper ABI保护保留。
+智能直切极限、智能停转后直切极限、20/6/20互切及38条手动四温度/融合历史通过；设置测试不冒称实际GUI磁贴点击。测试后恢复智能mode0/customize100，日用v8/充电v1不变。原厂手动仍记录约35秒BLOCKED，owned0后自行恢复，根因未确认，未清保护或强制使能。
 
-原始私有日志在 `build/manual-fix-audit/`，运行状态详见 [手动修复](../../knowledge/MANUAL-HANDOFF.md)。
+用户已授权正式发布、不发预发布。正式发布将复用本地同一ZIP与原签名，不重建或改写包内first-control/production未验的构建时快照；对外另附RELEASE_NOTES、RUNTIME_ACCEPTANCE及校验。正式分发不等于任意内核/全场景生产认证，当前helper ABI保护保留。
+
+原始私有日志在`build/manual-fix-audit/code30-reboot/`，不上传数据库/原始日志/密钥。正式Release最终ID、tag、状态与实际下载一致性在完成后追加本页。

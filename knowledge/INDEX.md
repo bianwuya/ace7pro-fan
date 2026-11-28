@@ -15,7 +15,8 @@
 | code29温度解耦、真实游戏进入/退出和剩余故障 | [实机恢复记录](GAME-RUNTIME-RECOVERY.md) | 单次日用→原厂游戏→日用已验证，后续BLOCKED及stage5边界仍保留 |
 | code29统一ZIP分发与验收版说明 | [分发必读](../releases/0.9.2-game-compat/DISTRIBUTION.md) | 原包不重建；目录和补充校验对应已发布同一ZIP |
 | code29独立源码包、冻结提交与GitHub源码资产 | [源码交付](../releases/0.9.2-game-compat/SOURCE_DELIVERY.md) | 229个跟踪文件；排除私钥/私有输入，上传后已下载核对 |
-| code30智能首切手动、四温度和融合曲线修复 | [手动交还与遥测](MANUAL-HANDOFF.md) | 代码/离线通过与新启动验收分开；正式发布需后者闭环 |
+| code30重启后实际运行、短时手动回归与已知保护窗口 | [实机验收](../releases/0.9.3-manual-handoff/RUNTIME_ACCEPTANCE.md) | 同一Settings路径，不冒称GUI磁贴点击或长时认证 |
+| code30智能首切手动、四温度和融合曲线修复 | [手动交还与遥测](MANUAL-HANDOFF.md) | 重启后首切与38条手动遥测通过；BLOCKED根因/通用内核未结案 |
 | 每轮修改后的知识索引、计划、交接与本地提交 | [开发与维护流程](WORKFLOW.md#git-与交付) | 从[任务/交接](../TASKS.md)继续；默认不上云 |
 | GitHub检查包、版本签名与新增/修复发布说明 | [云端发布](CLOUD_RELEASE.md) | 仅当次明确授权才操作；普通CI无密钥，`v*` tag才同签名建Draft |
 | 截止某时点的仓库和设备证据 | [状态快照](STATE.md) | 非实时状态；更新时写清证据时点与不确定性 |

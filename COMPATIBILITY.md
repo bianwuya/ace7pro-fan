@@ -7,7 +7,7 @@
 - 当前已构建 ABI 为 `6.12.69-android16-6-g242e1a07f878-ab15865446-4k`，原模块 vermagic 与运行 release 不同的既有事实保留，未改 vermagic/CRC 欺骗内核。
 - 需要 KernelSU 早期加载能力及能运行传统 API82 模块的 LSPosed；原厂作用域仅 `com.oplus.exsystemservice`。不刷新 boot/vendor_boot，不热卸载硬件驱动，不自动重启或强杀原厂服务。
 - 手动交还桥只解析实际初始化、重算和确认缓存，不依赖无关策略枚举；UID0 证明、精确配置版本、原始观测时间与实时模式校验通过后，才在原厂线程请求完整重算。
-- 本版离线回归和真实启动后的验收分别记录于 [0.9.3 说明](releases/0.9.3-manual-handoff/NOTES.md)。其他内核/ROM 无实机证据，不作通用或长时稳定承诺。
+- 本版已完成本机新启动后的首切/手动遥测限定回归；仍有BLOCKED已知问题，不是跨内核/长时认证。离线及实机范围分别记录于 [0.9.3 说明](releases/0.9.3-manual-handoff/NOTES.md)。其他内核/ROM 无实机证据，不作通用或长时稳定承诺。
 
 ## 历史接口与旧版证据
 
